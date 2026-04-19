@@ -392,17 +392,25 @@ function renderHoldings(name, data, identifier) {
     const bt = (b.gross_purchased_midpoint || 0) + (b.gross_sold_midpoint || 0);
     return bt - at;
   });
+  const slugForLink = identifier || data.politician || '';
   const rows = activity.map(a => {
     const gp = a.gross_purchased_midpoint || 0;
     const gs = a.gross_sold_midpoint || 0;
     const net = a.net_activity_midpoint || 0;
     const roundTrip = (a.purchase_count || 0) > 0 && (a.sale_count || 0) > 0;
+    const assetIdent = a.asset_name || a.ticker || '';
+    const assetSlugVal = slugify(assetIdent);
+    const clickable = !!(slugForLink && assetSlugVal);
     const cls = [
       net > 0 ? 'buy' : net < 0 ? 'sell' : '',
       roundTrip ? 'roundtrip' : '',
+      clickable ? 'asset-link' : '',
     ].filter(Boolean).join(' ');
+    const linkAttrs = clickable
+      ? ` data-view-asset="${escapeHTML(assetSlugVal)}" data-view-asset-name="${escapeHTML(assetIdent)}" data-view-slug="${escapeHTML(slugForLink)}" data-view-name="${escapeHTML(name || data.politician || '')}"`
+      : '';
     return `
-      <tr class="${cls}">
+      <tr class="${cls}"${linkAttrs}>
         <td>${escapeHTML(a.ticker || '—')}</td>
         <td class="a-name">${escapeHTML(a.asset_name || '')}</td>
         <td class="a-count">${a.purchase_count || 0}B / ${a.sale_count || 0}S${roundTrip ? ' <span class="rt" title="Round-trip: bought and sold in this period">\u21C4</span>' : ''}</td>
@@ -412,7 +420,6 @@ function renderHoldings(name, data, identifier) {
       </tr>
     `;
   }).join('');
-  const slugForLink = identifier || data.politician || '';
   return `
     <h2>${escapeHTML(name || data.politician || 'POLITICIAN')}</h2>
     <div class="modal-actions">
@@ -444,6 +451,18 @@ document.addEventListener('click', (e) => {
     const name = viewLatestBtn.dataset.viewName || slug;
     setPoliticianFilter(slug, name);
     document.getElementById('modal').classList.remove('open');
+    return;
+  }
+  const assetRow = e.target.closest('[data-view-asset]');
+  if (assetRow) {
+    const slug = assetRow.dataset.viewSlug;
+    const name = assetRow.dataset.viewName || slug;
+    const assetSlug = assetRow.dataset.viewAsset;
+    const assetName = assetRow.dataset.viewAssetName || assetSlug;
+    if (slug && assetSlug) {
+      setPoliticianFilter(slug, name, null, assetSlug, assetName);
+      document.getElementById('modal').classList.remove('open');
+    }
     return;
   }
   const nameEl = e.target.closest('[data-name]');
@@ -604,6 +623,19 @@ function applyRoute({ fetch = true } = {}) {
 }
 
 window.addEventListener('hashchange', () => applyRoute());
+
+// When embedded in an iframe, announce hash changes to the host page so it can
+// keep its own URL bar in sync (enables shareable deep links). Safe to send
+// with targetOrigin '*' because the payload is the URL hash itself, which the
+// parent already controls via the iframe src; embedders must verify event.origin.
+window.addEventListener('hashchange', () => {
+  if (window.parent !== window) {
+    window.parent.postMessage(
+      { type: 'politicians:hash', value: location.hash },
+      '*'
+    );
+  }
+});
 
 document.getElementById('filter-clear').addEventListener('click', () => clearPoliticianFilter());
 

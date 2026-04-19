@@ -513,6 +513,15 @@ body {
   background: rgba(232, 197, 71, 0.08);
   box-shadow: inset 3px 0 0 var(--gold);
 }
+.holdings tr.asset-link { cursor: pointer; }
+.holdings tr.asset-link:hover {
+  background: rgba(232, 197, 71, 0.18);
+  box-shadow: inset 3px 0 0 var(--gold);
+}
+.holdings tr.asset-link:hover td:first-child,
+.holdings tr.asset-link:hover td.a-name {
+  color: var(--gold);
+}
 .holdings td.a-name {
   font-size: 8px;
   color: var(--cream);
