@@ -171,10 +171,10 @@ function renderGroup(groupIndex) {
   if (group.length === 1) {
     const t = primary;
     lot.innerHTML = `
-      <div class="lot-politician" data-slug="${t.politician_slug || ''}" data-name="${escapeHTML(t.politician || '')}">
+      <div class="lot-politician" data-slug="${escapeHTML(t.politician_slug || '')}" data-name="${escapeHTML(t.politician || '')}">
         ${escapeHTML(t.politician || 'UNKNOWN')}${t.state_district ? `<span class="district">${escapeHTML(t.state_district)}</span>` : ''}
       </div>
-      <div class="lot-action">${actionLabel(t)}</div>
+      <div class="lot-action">${escapeHTML(actionLabel(t))}</div>
       <div class="lot-ticker">${escapeHTML(assetHeadline(t))}</div>
       <div class="lot-asset">${escapeHTML(assetSubtitle(t))}</div>
       <div class="lot-amount">&#9830; UP TO ${escapeHTML(formatMax(t.amount_max))}</div>
@@ -185,10 +185,10 @@ function renderGroup(groupIndex) {
     const buyList = purchases.slice(0, 5).map(t => tickerOf(t)).join(', ') + (purchases.length > 5 ? '\u2026' : '');
     const sellList = sales.slice(0, 5).map(t => tickerOf(t)).join(', ') + (sales.length > 5 ? '\u2026' : '');
     lot.innerHTML = `
-      <div class="lot-politician" data-slug="${primary.politician_slug || ''}" data-name="${escapeHTML(primary.politician || '')}">
+      <div class="lot-politician" data-slug="${escapeHTML(primary.politician_slug || '')}" data-name="${escapeHTML(primary.politician || '')}">
         ${escapeHTML(primary.politician || 'UNKNOWN')}${primary.state_district ? `<span class="district">${escapeHTML(primary.state_district)}</span>` : ''}
       </div>
-      <div class="lot-action">${group.length} TRADES</div>
+      <div class="lot-action">${escapeHTML(String(group.length))} TRADES</div>
       <div class="group-lines">
         ${purchases.length ? `<div class="gline buy"><span class="gdir">&#9650; BUY</span> ${escapeHTML(buyList)}</div>` : ''}
         ${sales.length ? `<div class="gline sell"><span class="gdir">&#9660; SELL</span> ${escapeHTML(sellList)}</div>` : ''}
@@ -221,7 +221,7 @@ function renderFilingList() {
     return `
       <li class="filing ${cls}" data-index="${i}">
         <span class="f-sigil">${sigil}</span>
-        <span class="f-name" data-slug="${t.politician_slug || ''}" data-name="${escapeHTML(t.politician || '')}">${escapeHTML(shortName(t.politician))}</span>
+        <span class="f-name" data-slug="${escapeHTML(t.politician_slug || '')}" data-name="${escapeHTML(t.politician || '')}">${escapeHTML(shortName(t.politician))}</span>
         <span class="f-ticker">${escapeHTML(tickerOf(t))}</span>
         <span class="f-amt">&#8804;${escapeHTML(formatMax(t.amount_max))}</span>
       </li>

@@ -2,6 +2,7 @@ import os
 import re
 import threading
 import time
+from collections import OrderedDict
 from datetime import datetime
 
 import requests
@@ -23,6 +24,13 @@ HTTP_TIMEOUT = 75        # per-attempt upstream timeout (API Gateway caps around
 MAX_ATTEMPTS = 3         # upstream retry budget per logical call
 TRANSIENT_STATUSES = {429, 502, 503, 504}
 
+# Input size caps (defence-in-depth against oversized inputs)
+MAX_STR_LEN = 200
+MIN_YEAR = 2008
+
+# Cache bound — LRU eviction once this many live entries exist
+MAX_CACHE_ENTRIES = 500
+
 app = Flask(__name__, static_folder="static", static_url_path="")
 
 _session = requests.Session()
@@ -31,8 +39,8 @@ _session.headers.update({
     "Content-Type": "application/json",
 })
 
-# ----- Single-flight TTL cache -----
-_cache: dict[str, tuple[float, object]] = {}
+# ----- Bounded single-flight TTL cache (LRU-ish eviction) -----
+_cache: "OrderedDict[str, tuple[float, object]]" = OrderedDict()
 _cache_lock = threading.Lock()
 _key_locks: dict[str, threading.Lock] = {}
 _key_locks_meta = threading.Lock()
@@ -42,6 +50,9 @@ def _key_lock(key: str) -> threading.Lock:
     with _key_locks_meta:
         lock = _key_locks.get(key)
         if lock is None:
+            # Cap the number of per-key locks to avoid unbounded growth
+            if len(_key_locks) >= MAX_CACHE_ENTRIES * 4:
+                _key_locks.clear()
             lock = threading.Lock()
             _key_locks[key] = lock
         return lock
@@ -52,16 +63,21 @@ def cache_get_or_set(key: str, ttl: float, fn):
     with _cache_lock:
         hit = _cache.get(key)
         if hit and hit[0] > now:
+            _cache.move_to_end(key)
             return hit[1]
     # Single-flight: serialize work for this key across threads
     with _key_lock(key):
         with _cache_lock:
             hit = _cache.get(key)
             if hit and hit[0] > time.time():
+                _cache.move_to_end(key)
                 return hit[1]
         value = fn()
         with _cache_lock:
             _cache[key] = (time.time() + ttl, value)
+            _cache.move_to_end(key)
+            while len(_cache) > MAX_CACHE_ENTRIES:
+                _cache.popitem(last=False)  # evict oldest
         return value
 
 
@@ -236,26 +252,21 @@ def health():
     return jsonify(ok=True)
 
 
-@app.route("/api/status")
-def status():
-    """What's cached right now — useful for frontend skeletons."""
-    with _cache_lock:
-        keys = sorted(_cache.keys())
-    return jsonify(cached=keys, years=sorted({int(k.split(":")[1]) for k in keys if k.startswith(("list:", "txs:"))}))
-
-
 @app.route("/api/latest")
 def latest():
     limit = max(1, min(_int_arg("limit", 50), 500))
     pool = max(1, min(_int_arg("pool", 500), 2000))
     requested = _int_arg("year", None)
-    politician = (request.args.get("politician") or "").strip() or None
-    start_date = (request.args.get("start_date") or "").strip() or None
-    end_date = (request.args.get("end_date") or "").strip() or None
-    asset_slug = (request.args.get("asset_slug") or "").strip() or None
+    politician = (request.args.get("politician") or "").strip()[:MAX_STR_LEN] or None
+    start_date = (request.args.get("start_date") or "").strip()[:10] or None
+    end_date = (request.args.get("end_date") or "").strip()[:10] or None
+    asset_slug = (request.args.get("asset_slug") or "").strip()[:MAX_STR_LEN] or None
     for label, val in (("start_date", start_date), ("end_date", end_date)):
         if val and not _DATE_RE.match(val):
             raise ValueError(f"invalid {label} (expected YYYY-MM-DD)")
+    current_year = datetime.utcnow().year
+    if requested is not None and not (MIN_YEAR <= requested <= current_year):
+        raise ValueError(f"year must be between {MIN_YEAR} and {current_year}")
 
     shape_kwargs = {
         "politician": politician,
@@ -268,7 +279,6 @@ def latest():
     # be one year after the transaction happened (late-year trades disclosed
     # early the following year). When filtering by a transaction date we try
     # date_year+1 first, then the date_year itself.
-    current_year = datetime.utcnow().year
     if requested is not None:
         candidates = [requested]
     elif start_date or end_date:
@@ -335,17 +345,23 @@ def latest():
 
 @app.route("/api/directory")
 def directory():
-    year = _int_arg("year", datetime.utcnow().year)
+    current_year = datetime.utcnow().year
+    year = _int_arg("year", current_year)
+    if not (MIN_YEAR <= year <= current_year):
+        raise ValueError(f"year must be between {MIN_YEAR} and {current_year}")
     politicians = fetch_list(year)
     return jsonify(year=year, count=len(politicians), politicians=politicians)
 
 
 @app.route("/api/holdings")
 def holdings():
-    politician = (request.args.get("politician") or "").strip()
+    politician = (request.args.get("politician") or "").strip()[:MAX_STR_LEN]
     if not politician:
         return jsonify(error="politician required"), 400
-    year = _int_arg("year", datetime.utcnow().year)
+    current_year = datetime.utcnow().year
+    year = _int_arg("year", current_year)
+    if not (MIN_YEAR <= year <= current_year):
+        raise ValueError(f"year must be between {MIN_YEAR} and {current_year}")
     key = f"holdings:{politician.lower()}:{year}"
     data = cache_get_or_set(
         key,

@@ -132,7 +132,6 @@ without the frontend:
 | `GET /api/latest?year=&politician=&start_date=&end_date=&asset_slug=&limit=&pool=` | Latest transactions with optional filters |
 | `GET /api/directory?year=` | Index of filers for the year |
 | `GET /api/holdings?politician=&year=` | Net disclosed activity by asset |
-| `GET /api/status` | What is currently cached |
 
 All dates are `YYYY-MM-DD`. `politician` is a slug (preferred) or a
 case-insensitive substring of the full name.
