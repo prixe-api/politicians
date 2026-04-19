@@ -8,7 +8,6 @@ const state = {
   currentGroupIndex: 0,
   playing: true,
   rotationTimer: null,
-  selectedYear: '',
   activeYear: null,
   politicianFilter: null,       // slug or substring filter for /api/latest
   politicianFilterName: null,   // display name for the chip
@@ -249,7 +248,6 @@ function highlightGroup(groupIndex) {
 // ---- Fetch with retries and friendly UI ----
 async function loadLatest(options = {}) {
   const { silent = false } = options;
-  const yearParam = state.selectedYear ? `&year=${state.selectedYear}` : '';
   const polParam = state.politicianFilter
     ? `&politician=${encodeURIComponent(state.politicianFilter)}`
     : '';
@@ -259,7 +257,7 @@ async function loadLatest(options = {}) {
   const assetParam = state.assetFilter
     ? `&asset_slug=${encodeURIComponent(state.assetFilter)}`
     : '';
-  const url = `/api/latest?limit=100&pool=800${yearParam}${polParam}${dateParam}${assetParam}`;
+  const url = `/api/latest?limit=100&pool=800${polParam}${dateParam}${assetParam}`;
 
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     if (!silent) {
@@ -337,14 +335,6 @@ function applyLatest(data) {
   }
   renderFilterChip();
 
-  document.getElementById('stat-trades').textContent = String(state.transactions.length);
-  const totalMax = state.transactions.reduce((s, t) => s + (t.amount_max || 0), 0);
-  document.getElementById('stat-total').textContent = fmt(totalMax);
-  const ys = document.getElementById('year-select');
-  if (!state.selectedYear) {
-    const auto = ys.querySelector('option[value=""]');
-    if (auto) auto.textContent = data.year ? `AUTO (${data.year})` : 'AUTO';
-  }
   setFallbackNote(data);
   renderFilingList();
   if (state.groups.length) {
@@ -431,18 +421,6 @@ function renderHoldings(name, data, identifier) {
   `;
 }
 
-// ---- Year selector ----
-function populateYearOptions() {
-  const currentYear = new Date().getUTCFullYear();
-  const sel = document.getElementById('year-select');
-  for (let y = currentYear; y >= 2008; y--) {
-    const o = document.createElement('option');
-    o.value = String(y);
-    o.textContent = String(y);
-    sel.appendChild(o);
-  }
-}
-
 // ---- Rotation (scene-driven) ----
 function advanceLot() {
   if (!state.groups.length) return;
@@ -504,11 +482,6 @@ document.getElementById('prev').addEventListener('click', () => {
 document.getElementById('next').addEventListener('click', () => {
   if (!state.groups.length) return;
   renderGroup((state.currentGroupIndex + 1) % state.groups.length);
-});
-document.getElementById('year-select').addEventListener('change', (e) => {
-  state.selectedYear = e.target.value;
-  state.currentGroupIndex = 0;
-  loadLatest().catch(() => {});
 });
 
 // ---- Filter chip + hash routing ----
@@ -616,7 +589,6 @@ document.getElementById('filter-clear').addEventListener('click', () => clearPol
 
 // ---- Init ----
 (async function init() {
-  populateYearOptions();
   const sceneEl = document.getElementById('scene');
   if (sceneEl && window.Scene) {
     window.Scene.init(sceneEl);
