@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>THE CAPITOL GAVEL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="crt">
+    <header class="banner">
+      <div class="banner-rupees">
+        <span class="rupee" title="Trades on the block"><span id="stat-trades">—</span> LOTS</span>
+        <span class="rupee gold" title="Total block value (sum of max bracket)">&#8804;<span id="stat-total">—</span></span>
+        <label class="rupee gold year-select" title="Year">
+          YR&nbsp;<select id="year-select" aria-label="Year">
+            <option value="">AUTO</option>
+          </select>
+        </label>
+      </div>
+      <h1 class="title">&#9830; THE CAPITOL GAVEL &#9830;</h1>
+      <div class="banner-hint">U.S. HOUSE STOCK DISCLOSURES</div>
+      <div id="fallback-note" class="fallback-note" hidden></div>
+      <div id="filter-chip" class="filter-chip" hidden>
+        <span class="filter-label">VIEWING:</span>
+        <span id="filter-name">—</span>
+        <button id="filter-clear" class="filter-clear" aria-label="Clear filter">&#10005;</button>
+      </div>
+    </header>
+
+    <main class="stage">
+      <section class="auction" id="auction">
+        <div class="dialog" id="lot" aria-live="polite">
+          <div class="loading">
+            <div class="loading-label">CONNECTING TO HOUSE LEDGER<span class="dots"></span></div>
+            <div class="progress"><div class="progress-bar"></div></div>
+            <div class="loading-sub" id="loading-sub">THIS MAY TAKE UP TO 30 SECONDS ON FIRST LOAD</div>
+          </div>
+        </div>
+
+        <div class="scene-wrap">
+          <canvas id="scene" class="scene" aria-hidden="true"></canvas>
+          <div class="scene-plaque">LOT&nbsp;<span id="lot-num">—</span></div>
+        </div>
+
+        <div class="controls">
+          <button id="prev" class="btn">&#9664; PREV</button>
+          <button id="pause" class="btn btn-primary">PAUSE</button>
+          <button id="next" class="btn">NEXT &#9654;</button>
+        </div>
+      </section>
+
+      <aside class="feed">
+        <div class="feed-title">RECENT FILINGS</div>
+        <ul id="filing-list" class="filing-list"></ul>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <span class="hint">&#9632; CLICK A POLITICIAN TO VIEW HOLDINGS &#9632;</span>
+    </footer>
+  </div>
+
+  <div id="modal" class="modal">
+    <div class="modal-frame">
+      <button id="modal-close" class="modal-close" aria-label="Close">&#10005;</button>
+      <div class="modal-body">
+        <div class="loading">LOADING...</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="scene.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
