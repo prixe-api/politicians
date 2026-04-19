@@ -52,6 +52,14 @@ function escapeHTML(s) {
 }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Matches the backend's slugify: lowercase, collapse non-alphanum runs to _
+function slugify(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
 // ---- API ----
 async function fetchJSON(url) {
   const r = await fetch(url);
@@ -446,6 +454,18 @@ document.addEventListener('click', (e) => {
   const filing = e.target.closest('.filing[data-index]');
   if (filing) {
     const txIdx = parseInt(filing.dataset.index, 10);
+    const t = state.transactions[txIdx];
+    if (t) {
+      const slug = t.politician_slug || t.politician || '';
+      const date = t.transaction_date || '';
+      const assetRaw = t.asset_name || t.ticker || '';
+      const assetSlug = slugify(assetRaw);
+      if (slug && /^\d{4}-\d{2}-\d{2}$/.test(date) && assetSlug) {
+        setPoliticianFilter(slug, t.politician || slug, date, assetSlug, assetRaw);
+        return;
+      }
+    }
+    // Fallback: just play the scene if we can't build a clean URL
     const gIdx = state.txToGroup[txIdx];
     if (gIdx !== undefined) renderGroup(gIdx);
   }
