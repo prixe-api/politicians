@@ -4,7 +4,7 @@
 
 <h1 align="center">The Legend of Stocks</h1>
 
-A pixel-art auction-block simulation of U.S. House of Representatives stock
+A pixel-art auction-block simulation of U.S. House and Senate stock
 disclosures, built on top of the [Prixe](https://prixe.io) Politicians API.
 Every few seconds, a politician walks across a Zelda-themed backdrop — themed
 to their state — visits the bank and the broker's desk, and the gavel comes
@@ -47,8 +47,13 @@ rip apart.
   all require it. Sign up at [prixe.io](https://prixe.io).
 - Either Docker (recommended) or Python 3.12.
 
-The app is **U.S. House only** — Prixe does not index Senate PTRs yet. House
-disclosures date back to 2008.
+The app covers both chambers. **House** disclosures date back to 2008;
+**Senate** disclosures to 2012 (the electronic-filing rollout date). A small
+share of Senate PTRs are scanned-image "paper" filings that Prixe cannot yet
+OCR — those are transparently skipped by the upstream and surfaced as an
+`errors[]` entry on the response. Senate transactions have `state_district`
+and `notification_date` fields set to `null` (the Senate eFD system doesn't
+expose those fields); the scene falls back to a Capitol motif for them.
 
 ## Configuration
 

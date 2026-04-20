@@ -131,12 +131,31 @@ def parse_date(s):
     return 0.0
 
 
-def fetch_list(year: int) -> list[dict]:
-    return cache_get_or_set(
-        f"list:{year}",
-        900,
-        lambda: prixe_post("/api/politicians/list", {"year": year}).get("politicians", []),
-    )
+_META_KEYS = (
+    "chambers_requested",
+    "chambers_returned",
+    "chambers_missing",
+    "partial",
+    "errors",
+)
+
+
+def _meta_of(data: object) -> dict:
+    if not isinstance(data, dict):
+        return {}
+    return {k: data[k] for k in _META_KEYS if k in data}
+
+
+def fetch_list(year: int, chamber: str | None = None) -> dict:
+    key = f"list:{year}:{chamber or 'both'}"
+
+    def call():
+        body: dict = {"year": year}
+        if chamber:
+            body["chamber"] = chamber
+        return prixe_post("/api/politicians/list", body)
+
+    return cache_get_or_set(key, 900, call)
 
 
 def fetch_transactions(
@@ -145,14 +164,16 @@ def fetch_transactions(
     politician: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
-) -> list[dict]:
+    chamber: str | None = None,
+) -> dict:
     key = (
         f"txs:{year}:{target}:{(politician or '*').lower()}"
-        f":{start_date or '*'}:{end_date or '*'}"
+        f":{start_date or '*'}:{end_date or '*'}:{chamber or 'both'}"
     )
 
     def call():
         rows: list[dict] = []
+        meta: dict = {}
         offset = 0
         page = 500
         while len(rows) < target:
@@ -169,13 +190,17 @@ def fetch_transactions(
                 body["start_date"] = start_date
             if end_date:
                 body["end_date"] = end_date
+            if chamber:
+                body["chamber"] = chamber
             data = prixe_post("/api/politicians", body)
+            if not meta:
+                meta = _meta_of(data)
             batch = data.get("transactions", [])
             rows.extend(batch)
             if len(batch) < size:
                 break
             offset += size
-        return rows
+        return {"transactions": rows, **meta}
 
     return cache_get_or_set(key, 300, call)
 
@@ -188,15 +213,30 @@ def _shape_latest(
     start_date: str | None = None,
     end_date: str | None = None,
     asset_slug: str | None = None,
+    chamber: str | None = None,
 ):
-    txs = fetch_transactions(
+    result = fetch_transactions(
         year,
         target=pool,
         politician=politician,
         start_date=start_date,
         end_date=end_date,
+        chamber=chamber,
     )
-    politicians = fetch_list(year)
+    # Support both the new dict shape and any cached list from an earlier build
+    if isinstance(result, list):
+        txs = result
+        meta: dict = {}
+    else:
+        txs = result.get("transactions", []) or []
+        meta = _meta_of(result)
+
+    list_resp = fetch_list(year, chamber=chamber)
+    if isinstance(list_resp, list):
+        politicians = list_resp
+    else:
+        politicians = list_resp.get("politicians", []) or []
+
     if asset_slug:
         needle = slugify(asset_slug)
         txs = [
@@ -217,13 +257,14 @@ def _shape_latest(
     sliced = txs[:limit]
     for t in sliced:
         name = t.get("politician")
-        t["politician_slug"] = slug_map.get(name)
+        if not t.get("politician_slug"):
+            t["politician_slug"] = slug_map.get(name)
         if not t.get("state_district"):
             t["state_district"] = district_map.get(name)
         lo = t.get("amount_min") or 0
         hi = t.get("amount_max") or 0
         t["amount_midpoint"] = (lo + hi) / 2 if (lo or hi) else 0
-    return sliced
+    return {"transactions": sliced, **meta}
 
 
 def _int_arg(name: str, default):
@@ -261,6 +302,9 @@ def latest():
     start_date = (request.args.get("start_date") or "").strip()[:10] or None
     end_date = (request.args.get("end_date") or "").strip()[:10] or None
     asset_slug = (request.args.get("asset_slug") or "").strip()[:MAX_STR_LEN] or None
+    chamber = (request.args.get("chamber") or "").strip().lower() or None
+    if chamber and chamber not in ("house", "senate"):
+        raise ValueError("chamber must be 'house' or 'senate'")
     for label, val in (("start_date", start_date), ("end_date", end_date)):
         if val and not _DATE_RE.match(val):
             raise ValueError(f"invalid {label} (expected YYYY-MM-DD)")
@@ -273,6 +317,7 @@ def latest():
         "start_date": start_date,
         "end_date": end_date,
         "asset_slug": asset_slug,
+        "chamber": chamber,
     }
 
     # Pick which filing years to try. Prixe's `year` = filing year, which can
@@ -307,12 +352,14 @@ def latest():
     last_empty = None
     for i, candidate in enumerate(candidates):
         try:
-            sliced = _shape_latest(candidate, limit, pool, **shape_kwargs)
+            shaped = _shape_latest(candidate, limit, pool, **shape_kwargs)
         except UpstreamError as e:
             last_err = e
             if e.status not in TRANSIENT_STATUSES and e.status != 404:
                 break
             continue
+        sliced = shaped.get("transactions", []) if isinstance(shaped, dict) else shaped
+        meta = _meta_of(shaped)
         if sliced or not prefer_nonempty:
             return jsonify(
                 count=len(sliced),
@@ -323,12 +370,14 @@ def latest():
                 start_date=start_date,
                 end_date=end_date,
                 asset_slug=asset_slug,
+                chamber=chamber,
                 transactions=sliced,
+                **meta,
             )
-        last_empty = (i, candidate, sliced)
+        last_empty = (i, candidate, sliced, meta)
 
     if last_empty is not None:
-        i, c, sliced = last_empty
+        i, c, sliced, meta = last_empty
         return jsonify(
             count=0,
             year=c,
@@ -337,7 +386,10 @@ def latest():
             politician=politician,
             start_date=start_date,
             end_date=end_date,
+            asset_slug=asset_slug,
+            chamber=chamber,
             transactions=sliced,
+            **meta,
         )
     assert last_err is not None
     raise last_err
@@ -349,8 +401,17 @@ def directory():
     year = _int_arg("year", current_year)
     if not (MIN_YEAR <= year <= current_year):
         raise ValueError(f"year must be between {MIN_YEAR} and {current_year}")
-    politicians = fetch_list(year)
-    return jsonify(year=year, count=len(politicians), politicians=politicians)
+    chamber = (request.args.get("chamber") or "").strip().lower() or None
+    if chamber and chamber not in ("house", "senate"):
+        raise ValueError("chamber must be 'house' or 'senate'")
+    resp = fetch_list(year, chamber=chamber)
+    if isinstance(resp, list):
+        return jsonify(year=year, count=len(resp), politicians=resp)
+    politicians = resp.get("politicians", []) or []
+    return jsonify(
+        year=year, chamber=chamber, count=len(politicians), politicians=politicians,
+        **_meta_of(resp),
+    )
 
 
 @app.route("/api/holdings")
@@ -362,12 +423,20 @@ def holdings():
     year = _int_arg("year", current_year)
     if not (MIN_YEAR <= year <= current_year):
         raise ValueError(f"year must be between {MIN_YEAR} and {current_year}")
-    key = f"holdings:{politician.lower()}:{year}"
-    data = cache_get_or_set(
-        key,
-        600,
-        lambda: prixe_post("/api/politicians/holdings", {"politician": politician, "year": year}),
-    )
+    chamber = (request.args.get("chamber") or "").strip().lower() or None
+    if chamber and chamber not in ("house", "senate"):
+        raise ValueError("chamber must be 'house' or 'senate'")
+    key = f"holdings:{politician.lower()}:{year}:{chamber or 'both'}"
+
+    def call():
+        body: dict = {"politician": politician, "year": year}
+        if chamber:
+            body["chamber"] = chamber
+        return prixe_post("/api/politicians/holdings", body)
+
+    data = cache_get_or_set(key, 600, call)
+    # Pass through the full response so activity, matched_politicians, and
+    # completeness metadata all reach the client intact.
     return jsonify(data)
 
 

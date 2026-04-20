@@ -120,6 +120,20 @@ function setFallbackNote(data) {
   }
 }
 
+function setPartialNote(data) {
+  const el = document.getElementById('partial-note');
+  if (!el) return;
+  if (data && data.partial) {
+    const missing = Array.isArray(data.chambers_missing) && data.chambers_missing.length
+      ? data.chambers_missing.map(c => String(c).toUpperCase()).join(', ')
+      : 'SOME CHAMBERS';
+    el.textContent = `\u26A0 PARTIAL — ${missing} STILL LOADING`;
+    el.hidden = false;
+  } else {
+    el.hidden = true;
+  }
+}
+
 // ---- Rendering ----
 const ASSET_TYPE_LABELS = {
   ST: 'STOCK',           OP: 'OPTION',           CS: 'CORP BOND',
@@ -344,6 +358,7 @@ function applyLatest(data) {
   renderFilterChip();
 
   setFallbackNote(data);
+  setPartialNote(data);
   renderFilingList();
   if (state.groups.length) {
     renderGroup(Math.min(state.currentGroupIndex, state.groups.length - 1));
@@ -385,14 +400,53 @@ async function openHoldings(identifier, displayName) {
   }
 }
 
+function renderPartialStrip(data) {
+  const missing = Array.isArray(data.chambers_missing) && data.chambers_missing.length
+    ? data.chambers_missing.map(c => String(c).toUpperCase()).join(', ')
+    : 'SOME CHAMBERS';
+  return `<div class="caveat" style="background:rgba(122,91,255,0.2);border-color:var(--accent);color:var(--ink);">&#9888; ${escapeHTML(missing)} STILL LOADING &mdash; DATA IS INCOMPLETE</div>`;
+}
+
 function renderHoldings(name, data, identifier) {
-  // Sort by total disclosed activity so round-trips don't fall to the bottom
+  // If Prixe disambiguated multiple politicians matching the filter, prompt
+  // the user to pick one before showing a merged activity table.
+  const matched = Array.isArray(data.matched_politicians) ? data.matched_politicians : [];
+  if (matched.length > 1) {
+    const options = matched.map(m => {
+      const ch = (m.chamber || '').toUpperCase();
+      const chClass = ch === 'SENATE' ? 'senate' : '';
+      const tcount = m.transaction_count != null ? `${m.transaction_count} TRADES` : '';
+      return `
+        <button class="chooser-btn" data-holdings-slug="${escapeHTML(m.politician_slug || '')}" data-holdings-name="${escapeHTML(m.politician || '')}">
+          <span class="ch-name">${escapeHTML(m.politician || m.politician_slug || '')}${ch ? ` <span class="chamber-badge ${chClass}">${escapeHTML(ch)}</span>` : ''}</span>
+          <span class="ch-tag">${escapeHTML(tcount)}</span>
+        </button>
+      `;
+    }).join('');
+    return `
+      <h2>${escapeHTML(name || identifier || 'MULTIPLE MATCHES')}</h2>
+      ${data.partial ? renderPartialStrip(data) : ''}
+      <div class="chooser">
+        <h3>&#9733; MULTIPLE MATCHES &mdash; PICK ONE &#9733;</h3>
+        <div class="chooser-options">${options}</div>
+      </div>
+    `;
+  }
+
+  // Activity rows are now grouped by (politician_slug, ticker). Upstream
+  // returns same-politician rows adjacent — preserve that grouping while
+  // sorting by total disclosed activity within each group.
   const activity = (data.activity || []).slice().sort((a, b) => {
+    if ((a.politician_slug || '') !== (b.politician_slug || '')) return 0;
     const at = (a.gross_purchased_midpoint || 0) + (a.gross_sold_midpoint || 0);
     const bt = (b.gross_purchased_midpoint || 0) + (b.gross_sold_midpoint || 0);
     return bt - at;
   });
-  const slugForLink = identifier || data.politician || '';
+
+  const singleMatch = matched[0] || {};
+  const slugForLink = singleMatch.politician_slug || identifier || data.politician || '';
+  const displayName = singleMatch.politician || name || data.politician || '';
+
   const rows = activity.map(a => {
     const gp = a.gross_purchased_midpoint || 0;
     const gs = a.gross_sold_midpoint || 0;
@@ -400,18 +454,25 @@ function renderHoldings(name, data, identifier) {
     const roundTrip = (a.purchase_count || 0) > 0 && (a.sale_count || 0) > 0;
     const assetIdent = a.asset_name || a.ticker || '';
     const assetSlugVal = slugify(assetIdent);
-    const clickable = !!(slugForLink && assetSlugVal);
+    // Prefer the row's own politician_slug (new shape) over the modal's.
+    const rowSlug = a.politician_slug || slugForLink;
+    const rowName = a.politician || displayName;
+    const clickable = !!(rowSlug && assetSlugVal);
     const cls = [
       net > 0 ? 'buy' : net < 0 ? 'sell' : '',
       roundTrip ? 'roundtrip' : '',
       clickable ? 'asset-link' : '',
     ].filter(Boolean).join(' ');
     const linkAttrs = clickable
-      ? ` data-view-asset="${escapeHTML(assetSlugVal)}" data-view-asset-name="${escapeHTML(assetIdent)}" data-view-slug="${escapeHTML(slugForLink)}" data-view-name="${escapeHTML(name || data.politician || '')}"`
+      ? ` data-view-asset="${escapeHTML(assetSlugVal)}" data-view-asset-name="${escapeHTML(assetIdent)}" data-view-slug="${escapeHTML(rowSlug)}" data-view-name="${escapeHTML(rowName)}"`
+      : '';
+    const chamber = (a.chamber || '').toUpperCase();
+    const chBadge = chamber
+      ? ` <span class="chamber-badge ${chamber === 'SENATE' ? 'senate' : ''}">${escapeHTML(chamber)}</span>`
       : '';
     return `
       <tr class="${cls}"${linkAttrs}>
-        <td>${escapeHTML(a.ticker || '—')}</td>
+        <td>${escapeHTML(a.ticker || '—')}${chBadge}</td>
         <td class="a-name">${escapeHTML(a.asset_name || '')}</td>
         <td class="a-count">${a.purchase_count || 0}B / ${a.sale_count || 0}S${roundTrip ? ' <span class="rt" title="Round-trip: bought and sold in this period">\u21C4</span>' : ''}</td>
         <td class="a-bought">${gp ? escapeHTML(fmt(gp)) : '—'}</td>
@@ -420,10 +481,12 @@ function renderHoldings(name, data, identifier) {
       </tr>
     `;
   }).join('');
+
   return `
-    <h2>${escapeHTML(name || data.politician || 'POLITICIAN')}</h2>
+    <h2>${escapeHTML(displayName || 'POLITICIAN')}</h2>
+    ${data.partial ? renderPartialStrip(data) : ''}
     <div class="modal-actions">
-      <button class="btn btn-primary" data-view-latest="${escapeHTML(slugForLink)}" data-view-name="${escapeHTML(name || '')}">&#9830; VIEW LATEST TRADES</button>
+      <button class="btn btn-primary" data-view-latest="${escapeHTML(slugForLink)}" data-view-name="${escapeHTML(displayName)}">&#9830; VIEW LATEST TRADES</button>
     </div>
     <div class="caveat">&#9733; DISCLOSED TRADING ACTIVITY (${data.year || ''}) &mdash; NOT A PORTFOLIO BALANCE. &#8644; = ROUND-TRIP (BOUGHT &amp; SOLD)</div>
     <table class="holdings">
@@ -451,6 +514,13 @@ document.addEventListener('click', (e) => {
     const name = viewLatestBtn.dataset.viewName || slug;
     setPoliticianFilter(slug, name);
     document.getElementById('modal').classList.remove('open');
+    return;
+  }
+  const chooser = e.target.closest('[data-holdings-slug]');
+  if (chooser) {
+    const slug = chooser.dataset.holdingsSlug;
+    const cName = chooser.dataset.holdingsName || slug;
+    if (slug) openHoldings(slug, cName);
     return;
   }
   const assetRow = e.target.closest('[data-view-asset]');

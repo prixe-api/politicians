@@ -1473,7 +1473,11 @@
 
   function currentMotifName() {
     const code = stateCode();
-    return STATE_MOTIF[code] || 'mountains';
+    if (STATE_MOTIF[code]) return STATE_MOTIF[code];
+    // Senate transactions don't carry a state_district — show the Capitol
+    // dome backdrop instead of falling back to generic mountains.
+    if (S.lot && S.lot.chamber === 'senate') return 'capitol';
+    return 'mountains';
   }
 
   // -------- Motif caching --------
@@ -1724,13 +1728,16 @@
   function drawStateBanner(cx, y) {
     if (!S.lot || S.polAlpha < 0.1) return;
     const sd = S.lot.state_district || '';
-    if (!sd) return;
+    const chamber = (S.lot.chamber || '').toLowerCase();
+    let label = sd;
+    if (!label && chamber === 'senate') label = 'SENATE';
+    if (!label) return;
     const tt = S.txType || (S.lot && S.lot.transaction_type);
     const color = tt === 'purchase' ? PAL.green
       : (tt || '').startsWith('sale') ? PAL.red
       : PAL.gold;
     ctx.font = 'bold 7px "Press Start 2P", monospace';
-    const tw = Math.max(34, ctx.measureText(sd).width + 12);
+    const tw = Math.max(34, ctx.measureText(label).width + 12);
     const bx = cx - tw / 2;
     rect(PAL.wood, cx - 1, y + 4, 2, 10);
     rect(PAL.ink, cx - 2, y + 4, 1, 10);
@@ -1738,7 +1745,7 @@
     rect(color, bx, y, tw, 12);
     rect(PAL.ink, bx, y, tw, 1);
     rect(PAL.ink, bx, y + 11, tw, 1);
-    textCentered(sd, cx, y + 3, PAL.ink, 7, true);
+    textCentered(label, cx, y + 3, PAL.ink, 7, true);
   }
 
   function drawCarriedLabel(polX, yFeet) {
