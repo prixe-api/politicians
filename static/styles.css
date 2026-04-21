@@ -242,15 +242,19 @@ body {
   padding: 6px 10px;
   font-size: 9px;
   letter-spacing: 2px;
+  color: var(--gold);
+  background: #000;
+  border: 2px solid var(--gold-dim);
+  text-decoration: none;
+  transition: color 0.1s, border-color 0.1s, background 0.1s, transform 0.05s;
+}
+.lot-pdf:hover {
   color: var(--ink);
   background: var(--gold);
-  border: 2px solid #000;
-  text-decoration: none;
-  transition: background 0.1s, transform 0.05s;
+  border-color: var(--gold);
 }
-.lot-pdf:hover { background: #fff7a8; }
 .lot-pdf:active { transform: translate(1px, 1px); }
-.lot-pdf:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.lot-pdf:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .group-lines {
   margin: 4px 0 8px;
   font-size: 9px;
