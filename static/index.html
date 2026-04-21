@@ -57,6 +57,10 @@
 
     <footer class="footer">
       <span class="hint">&#9632; CLICK A POLITICIAN TO VIEW HOLDINGS &#9632;</span>
+      <button id="help-btn" class="gh-link" aria-label="Help">
+        <span style="font-size:12px;line-height:1">?</span>
+        <span>HELP</span>
+      </button>
       <a class="gh-link" href="https://github.com/prixe-api/politicians" target="_blank" rel="noopener noreferrer" aria-label="View on GitHub">
         <svg class="gh-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path fill="currentColor" d="M12 0.5C5.373 0.5 0 5.873 0 12.5c0 5.302 3.438 9.8 8.205 11.387.6.111.82-.26.82-.577 0-.285-.01-1.04-.016-2.04-3.338.726-4.043-1.61-4.043-1.61-.546-1.386-1.333-1.756-1.333-1.756-1.09-.745.083-.73.083-.73 1.205.085 1.839 1.237 1.839 1.237 1.07 1.833 2.809 1.303 3.495.996.108-.775.419-1.304.762-1.604-2.665-.303-5.467-1.333-5.467-5.93 0-1.31.468-2.38 1.236-3.22-.124-.303-.536-1.523.117-3.176 0 0 1.008-.323 3.3 1.23.957-.266 1.984-.399 3.003-.404 1.02.005 2.046.138 3.003.404 2.29-1.553 3.297-1.23 3.297-1.23.655 1.653.243 2.873.12 3.176.77.84 1.234 1.91 1.234 3.22 0 4.61-2.807 5.624-5.48 5.92.43.37.815 1.103.815 2.222 0 1.604-.015 2.896-.015 3.29 0 .32.216.694.825.576C20.565 22.296 24 17.8 24 12.5 24 5.873 18.627 0.5 12 0.5z"/>
@@ -71,6 +75,54 @@
       <button id="modal-close" class="modal-close" aria-label="Close">&#10005;</button>
       <div class="modal-body">
         <div class="loading">LOADING...</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="help-modal" class="modal">
+    <div class="modal-frame">
+      <button id="help-close" class="modal-close" aria-label="Close help">&#10005;</button>
+      <div class="modal-body help-body">
+        <h2>&#9830; HOW TO NAVIGATE &#9830;</h2>
+        <section class="help-section">
+          <h3>KEYBOARD</h3>
+          <ul>
+            <li><kbd>&#8592;</kbd> / <kbd>&#8594;</kbd> &mdash; previous / next filing group</li>
+            <li><kbd>SPACE</kbd> &mdash; pause / resume the animation</li>
+            <li><kbd>ESC</kbd> &mdash; close dialogs</li>
+            <li><kbd>?</kbd> &mdash; open / close this help</li>
+          </ul>
+        </section>
+        <section class="help-section">
+          <h3>CLICK TO EXPLORE</h3>
+          <ul>
+            <li><b>Politician name</b> (on the auction card or in the feed) &mdash; open their holdings modal.</li>
+            <li><b>VIEW LATEST TRADES</b> in the modal &mdash; filter the whole feed to that politician.</li>
+            <li><b>Row in the holdings table</b> &mdash; deep-link to all of their trades of that asset.</li>
+            <li><b>Filing row in the sidebar feed</b> &mdash; deep-link to that specific transaction.</li>
+            <li><b>VIEW PTR PDF</b> (House) &mdash; open the House Clerk&rsquo;s original disclosure PDF in a new tab.</li>
+            <li><b>VIEW SENATE FILING</b> &mdash; opens eFD. First-time visitors must accept the Senate terms page, then click the link again; after that the session persists.</li>
+          </ul>
+        </section>
+        <section class="help-section">
+          <h3>URL PATTERNS</h3>
+          <ul>
+            <li><code>/</code> &mdash; latest across all politicians</li>
+            <li><code>#/politician/&lt;slug&gt;</code> &mdash; one politician</li>
+            <li><code>#/politician/&lt;slug&gt;/&lt;yyyy_mm_dd&gt;</code> &mdash; one date</li>
+            <li><code>#/politician/&lt;slug&gt;/&lt;yyyy_mm_dd&gt;/&lt;asset&gt;</code> &mdash; one trade</li>
+            <li><code>#/politician/&lt;slug&gt;/&lt;asset&gt;</code> &mdash; one asset across dates</li>
+          </ul>
+        </section>
+        <section class="help-section">
+          <h3>SCENE LEGEND</h3>
+          <ul>
+            <li><span style="color:var(--buy);">&#9650;</span> <b>green</b> = purchase &middot; <span style="color:var(--sell);">&#9660;</span> <b>red</b> = sale</li>
+            <li><span style="color:var(--gold);">&#8644;</span> <b>round-trip</b> = bought AND sold in the period (net may be $0)</li>
+            <li><b>SENATE</b> banner appears for Senate trades (no state district on Senate filings)</li>
+            <li><b>Epilogue cards</b> at the end of each scene print the filer&rsquo;s verbatim description</li>
+          </ul>
+        </section>
       </div>
     </div>
   </div>

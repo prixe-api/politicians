@@ -236,6 +236,21 @@ body {
   color: var(--cream);
   opacity: 0.7;
 }
+.lot-pdf {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 6px 10px;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--ink);
+  background: var(--gold);
+  border: 2px solid #000;
+  text-decoration: none;
+  transition: background 0.1s, transform 0.05s;
+}
+.lot-pdf:hover { background: #fff7a8; }
+.lot-pdf:active { transform: translate(1px, 1px); }
+.lot-pdf:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .group-lines {
   margin: 4px 0 8px;
   font-size: 9px;
@@ -681,6 +696,67 @@ body {
   vertical-align: middle;
 }
 .chamber-badge.senate { color: var(--accent); border-color: var(--accent); }
+
+/* ===== Help modal ===== */
+.help-body h2 {
+  font-size: 14px;
+  color: var(--gold);
+  margin-bottom: 14px;
+  text-shadow: 2px 2px 0 #000;
+}
+.help-section {
+  margin-bottom: 18px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 3px solid var(--gold-dim);
+}
+.help-section h3 {
+  font-size: 10px;
+  color: var(--gold);
+  margin-bottom: 10px;
+  letter-spacing: 2px;
+}
+.help-section ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.help-section li {
+  font-size: 9px;
+  line-height: 1.8;
+  color: var(--cream);
+  padding-left: 14px;
+  position: relative;
+}
+.help-section li::before {
+  content: '\25B8';
+  position: absolute;
+  left: 0;
+  color: var(--gold-dim);
+}
+.help-section kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 2px 6px;
+  background: var(--panel-dark);
+  border: 1px solid var(--gold-dim);
+  border-radius: 0;
+  font-family: inherit;
+  font-size: 9px;
+  color: var(--gold);
+  text-align: center;
+  box-shadow: inset -1px -1px 0 rgba(0,0,0,0.4), inset 1px 1px 0 rgba(255,255,255,0.1);
+}
+.help-section code {
+  font-family: inherit;
+  font-size: 8px;
+  color: var(--gold);
+  background: rgba(0, 0, 0, 0.5);
+  padding: 1px 4px;
+  border: 1px solid var(--gold-dim);
+  word-break: break-all;
+}
+.help-section b { color: var(--ink); }
 .filter-chip {
   margin-top: 10px;
   display: inline-flex;

@@ -60,6 +60,33 @@ function slugify(s) {
     .replace(/^_+|_+$/g, '');
 }
 
+// Build a link to the original filing — House has a direct PDF on the
+// disclosures-clerk site; Senate electronic PTRs are HTML pages on eFD.
+function filingLink(t) {
+  if (!t || !t.filing_doc_id) return null;
+  const chamber = (t.chamber || 'house').toLowerCase();
+  const docId = String(t.filing_doc_id).trim();
+  if (!docId) return null;
+
+  if (chamber === 'senate') {
+    return {
+      url: `https://efdsearch.senate.gov/search/view/ptr/${encodeURIComponent(docId)}/`,
+      label: 'VIEW SENATE FILING',
+      tooltip: 'Opens eFD. First-time visitors must accept the Senate terms, then click the link again.',
+    };
+  }
+
+  // House: /public_disc/ptr-pdfs/<year>/<filing_doc_id>.pdf
+  const fd = String(t.filing_date || '');
+  const m = fd.match(/(20\d{2})/);
+  if (!m) return null;
+  return {
+    url: `https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/${m[1]}/${encodeURIComponent(docId)}.pdf`,
+    label: 'VIEW PTR PDF',
+    tooltip: 'Direct PDF from the House Clerk.',
+  };
+}
+
 // ---- API ----
 async function fetchJSON(url) {
   const r = await fetch(url);
@@ -190,6 +217,11 @@ function renderGroup(groupIndex) {
     : '';
   lot.className = 'dialog ' + dirCls;
 
+  const link = filingLink(primary);
+  const pdfLink = link
+    ? `<a class="lot-pdf" href="${escapeHTML(link.url)}" target="_blank" rel="noopener noreferrer"${link.tooltip ? ` title="${escapeHTML(link.tooltip)}"` : ''}>&#9783; ${escapeHTML(link.label)}</a>`
+    : '';
+
   if (group.length === 1) {
     const t = primary;
     lot.innerHTML = `
@@ -201,6 +233,7 @@ function renderGroup(groupIndex) {
       <div class="lot-asset">${escapeHTML(assetSubtitle(t))}</div>
       <div class="lot-amount">&#9830; UP TO ${escapeHTML(formatMax(t.amount_max))}</div>
       <div class="lot-date">ON ${escapeHTML(t.transaction_date || '?')} &middot; FILED ${escapeHTML(t.filing_date || '?')}</div>
+      ${pdfLink}
     `;
   } else {
     const totalMax = group.reduce((s, t) => s + (t.amount_max || 0), 0);
@@ -217,6 +250,7 @@ function renderGroup(groupIndex) {
       </div>
       <div class="lot-amount">&#9830; UP TO ${escapeHTML(formatMax(totalMax))} TOTAL</div>
       <div class="lot-date">ON ${escapeHTML(primary.transaction_date || '?')} &middot; FILED ${escapeHTML(primary.filing_date || '?')}</div>
+      ${pdfLink}
     `;
   }
 
@@ -506,6 +540,13 @@ function advanceLot() {
   renderGroup(next);
 }
 
+function setPlaying(val) {
+  const next = !!val;
+  state.playing = next;
+  const btn = document.getElementById('pause');
+  if (btn) btn.textContent = next ? 'PAUSE' : 'PLAY';
+}
+
 // ---- Event wiring ----
 document.addEventListener('click', (e) => {
   const viewLatestBtn = e.target.closest('[data-view-latest]');
@@ -566,19 +607,42 @@ document.getElementById('modal-close').addEventListener('click', () => {
 document.getElementById('modal').addEventListener('click', (e) => {
   if (e.target.id === 'modal') e.target.classList.remove('open');
 });
+
+// ---- Help modal ----
+function openHelp() {
+  const el = document.getElementById('help-modal');
+  if (el) el.classList.add('open');
+}
+function closeHelp() {
+  const el = document.getElementById('help-modal');
+  if (el) el.classList.remove('open');
+}
+document.getElementById('help-btn')?.addEventListener('click', openHelp);
+document.getElementById('help-close')?.addEventListener('click', closeHelp);
+document.getElementById('help-modal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'help-modal') closeHelp();
+});
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') document.getElementById('modal').classList.remove('open');
+  if (e.key === 'Escape') {
+    document.getElementById('modal').classList.remove('open');
+    const help = document.getElementById('help-modal');
+    if (help) help.classList.remove('open');
+  }
   const tag = (e.target.tagName || '').toLowerCase();
   if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
-  if (e.key === 'ArrowLeft' && state.groups.length)
+  if (e.key === 'ArrowLeft' && state.groups.length) {
+    setPlaying(true);
     renderGroup((state.currentGroupIndex - 1 + state.groups.length) % state.groups.length);
-  if (e.key === 'ArrowRight' && state.groups.length)
+  }
+  if (e.key === 'ArrowRight' && state.groups.length) {
+    setPlaying(true);
     renderGroup((state.currentGroupIndex + 1) % state.groups.length);
+  }
   if (e.key === ' ') { e.preventDefault(); document.getElementById('pause').click(); }
+  if (e.key === '?' || e.key === 'h' || e.key === 'H') openHelp();
 });
 document.getElementById('pause').addEventListener('click', () => {
-  state.playing = !state.playing;
-  document.getElementById('pause').textContent = state.playing ? 'PAUSE' : 'PLAY';
+  setPlaying(!state.playing);
   if (state.playing && window.Scene && window.Scene.isIdle && window.Scene.isIdle()) {
     // Resume: kick off the next lot
     advanceLot();
@@ -586,10 +650,12 @@ document.getElementById('pause').addEventListener('click', () => {
 });
 document.getElementById('prev').addEventListener('click', () => {
   if (!state.groups.length) return;
+  setPlaying(true);
   renderGroup((state.currentGroupIndex - 1 + state.groups.length) % state.groups.length);
 });
 document.getElementById('next').addEventListener('click', () => {
   if (!state.groups.length) return;
+  setPlaying(true);
   renderGroup((state.currentGroupIndex + 1) % state.groups.length);
 });
 
