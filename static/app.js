@@ -545,6 +545,9 @@ function setPlaying(val) {
   state.playing = next;
   const btn = document.getElementById('pause');
   if (btn) btn.textContent = next ? 'PAUSE' : 'PLAY';
+  if (window.Scene && typeof window.Scene.setPaused === 'function') {
+    window.Scene.setPaused(!next);
+  }
 }
 
 // ---- Event wiring ----

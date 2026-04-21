@@ -80,6 +80,7 @@
     isBuy: true,
     txType: null,
     doneFired: false,
+    paused: false,
   };
 
   // -------- Formatters --------
@@ -181,6 +182,7 @@
     S.gavelPhase = 'rest';
     S.gavelT = 0;
     S.flashT = 0;
+    S.paused = false;
     S.isBuy = (S.lot && S.lot.transaction_type === 'purchase');
     S.txType = S.lot ? S.lot.transaction_type : null;
     S.script = group.length ? buildScript(group) : [];
@@ -189,6 +191,7 @@
   }
 
   function isIdle() { return S.stepIndex >= S.script.length; }
+  function setPaused(v) { S.paused = !!v; }
 
   // Short type hints used when the asset_type isn't a standard stock
   const TYPE_SHORT = {
@@ -481,6 +484,7 @@
   }
 
   function update(dt) {
+    if (S.paused) return;  // freeze all scene animation while paused
     S.walkPhaseT += dt;
     if (S.walkPhaseT >= 0.16) {
       S.walkPhaseT = 0;
@@ -1930,5 +1934,5 @@
     ctx.globalAlpha = 1;
   }
 
-  window.Scene = { init, setLot, isIdle };
+  window.Scene = { init, setLot, isIdle, setPaused };
 })();
