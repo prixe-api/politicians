@@ -776,6 +776,23 @@ window.addEventListener('hashchange', () => {
   }
 });
 
+// When embedded, classify each click as 'chrome' (banner / branding) vs 'app'
+// (any interactive element or content area) so the host page can react —
+// e.g. treating banner clicks as "go back to host home". Filter chip controls
+// inside the banner count as 'app' since they drive the embedded UI.
+document.addEventListener('click', (e) => {
+  if (window.parent === window) return;
+  const inBanner = !!e.target.closest('.banner');
+  const isFilterChip = !!e.target.closest(
+    '#filter-clear, .filter-label, #filter-name'
+  );
+  const area = (inBanner && !isFilterChip) ? 'chrome' : 'app';
+  window.parent.postMessage(
+    { type: 'politicians:click', area },
+    '*'
+  );
+});
+
 document.getElementById('filter-clear').addEventListener('click', () => clearPoliticianFilter());
 
 // ---- Init ----

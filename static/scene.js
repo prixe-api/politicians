@@ -214,17 +214,171 @@
     return first.toUpperCase().slice(0, 10);
   }
 
-  // Build the politician's speech-bubble lines for a given transaction.
-  // With a ticker → short "I'LL TAKE AAPL!" / "CASH OUT AAPL!" call.
-  // Without a ticker (bonds, notes, funds) → the full asset_name, wrapped
-  // onto multiple bubble lines so nothing gets lost in the animation.
+  // Classify the filer's free-text `description` so we can tailor dialogue.
+  // Returns { kind, ...fields } or null if nothing interesting detected.
+  // More specific matches run first so they win over generic "advisor" catch-all.
+  function parseDescription(desc) {
+    if (!desc) return null;
+    const s = String(desc).trim();
+
+    // --- Option mechanics (long form) ---
+    let m = s.match(/Exercised\s+([\d,]+)\s+call\s+option.*?strike\s+price\s+of\s+\$?([\d,.]+)/i);
+    if (m) return { kind: 'exerciseCall', count: m[1], strike: m[2] };
+
+    m = s.match(/Exercised\s+([\d,]+)\s+put\s+option.*?strike\s+price\s+of\s+\$?([\d,.]+)/i);
+    if (m) return { kind: 'exercisePut', count: m[1], strike: m[2] };
+
+    m = s.match(/Purchased\s+([\d,]+)\s+call\s+option.*?strike\s+price\s+of\s+\$?([\d,.]+)/i);
+    if (m) return { kind: 'buyCall', count: m[1], strike: m[2] };
+
+    m = s.match(/Purchased\s+([\d,]+)\s+put\s+option.*?strike\s+price\s+of\s+\$?([\d,.]+)/i);
+    if (m) return { kind: 'buyPut', count: m[1], strike: m[2] };
+
+    m = s.match(/Sold\s+([\d,]+)\s+call\s+option.*?strike\s+price\s+of\s+\$?([\d,.]+)/i);
+    if (m) return { kind: 'sellCall', count: m[1], strike: m[2] };
+
+    // --- Option mechanics (Gottheimer-style short form: "Call options; Strike price $325; Expires ...") ---
+    m = s.match(/call\s+option[s;,]?\s*strike\s+price\s*\$?([\d,.]+)/i);
+    if (m) return { kind: 'buyCallShort', strike: m[1] };
+
+    m = s.match(/put\s+option[s;,]?\s*strike\s+price\s*\$?([\d,.]+)/i);
+    if (m) return { kind: 'buyPutShort', strike: m[1] };
+
+    // --- Corporate actions ---
+    if (/received\s+(?:thru|through|via)\s+merger|received\s+.*as\s+(?:a\s+)?result\s+of\s+merger|merger\s+shares\s+received/i.test(s)) {
+      return { kind: 'mergerIn' };
+    }
+    if (/surrendered\s+(?:thru|through|via)\s+merger|surrendered\s+in\s+(?:the\s+)?merger/i.test(s)) {
+      return { kind: 'mergerOut' };
+    }
+    if (/spin-?off/i.test(s)) {
+      const parent = s.match(/(?:from|of)\s+([A-Z][A-Za-z.& ]{2,30})(?:\s+Corporation|\s+Inc|\s+Company|\.|,|$)/);
+      return { kind: 'spinoff', parent: parent ? parent[1].trim() : null };
+    }
+    if (/directors?\s+executed|corporate\s+action|reorganization/i.test(s)) {
+      return { kind: 'corporateAction' };
+    }
+
+    // --- Dividends / DRIPs ---
+    // "Dividend reinvestment" or the filer's common typo "Divided reinvestment"
+    if (/div(?:idend|ided)\s+reinvestment|DRIP\b/i.test(s)) {
+      return { kind: 'divReinvest' };
+    }
+
+    // --- Structured products (Biggs pattern) ---
+    if (/structured\s+(?:investment\s+)?(?:product|note)/i.test(s)) {
+      const under = s.match(/based\s+on\s+\(?\s*([A-Z]{2,6})/);
+      const basket = s.match(/\(\s*([A-Z]{2,6}(?:\s*&\s*[A-Z]{2,6}){0,3})\s*\)/);
+      return { kind: 'structured', ref: under ? under[1] : (basket ? basket[1].replace(/\s+/g, '') : null) };
+    }
+
+    // --- Charitable transfers ---
+    if (/Donor-?Advised\s+Fund|DAF\b|charity|charitable/i.test(s)) {
+      m = s.match(/(?:Contribution of|of)\s+([\d,]+)\s+shares/i);
+      return { kind: 'daf', count: m ? m[1] : null };
+    }
+
+    // --- Foreign ticker hint (Cisneros pattern: "Ticker 9988 HK") ---
+    m = s.match(/^Ticker\s+([A-Z0-9.]{2,10}(?:\s+[A-Z]{2,3})?)\.?$/i);
+    if (m) return { kind: 'foreignTicker', symbol: m[1].trim().toUpperCase() };
+
+    // --- Paired / linked entries ---
+    if (/see\s+.?(?:sale|purchase|exchange).?\s+transaction/i.test(s)) {
+      return { kind: 'paired' };
+    }
+
+    // --- Low value disclosure ---
+    if (/value\s*(?:is|was|after)?\s*(?:<|less than|under|below)\s*\$?\s*1[\s,]?000/i.test(s)) {
+      return { kind: 'lowValue' };
+    }
+
+    // --- Share-count filings ---
+    m = s.match(/Purchased\s+([\d,]+)\s+shares?/i);
+    if (m) return { kind: 'buyShares', count: m[1] };
+
+    m = s.match(/Sold\s+([\d,]+)\s+shares?/i);
+    if (m) return { kind: 'sellShares', count: m[1] };
+
+    if (/cash\s+in\s+lieu|fractional\s+shares?/i.test(s)) {
+      return { kind: 'cashInLieu' };
+    }
+
+    // --- Generic advisor / managed / rebalancing (catch-all, must be last) ---
+    if (/advisor|professionally\s+managed|managed\s+account|rebalanc/i.test(s)) {
+      return { kind: 'advisor' };
+    }
+
+    return null;
+  }
+
+  // Politician's speech — prefers context from description when available.
   function speechLines(t, isBuy) {
+    const ticker = tickerOf(t);
+    const ctx = parseDescription(t.description);
+
+    if (ctx) {
+      switch (ctx.kind) {
+        case 'exerciseCall':
+          return [`EXERCISE MY`, `${ticker} CALLS`, `AT $${ctx.strike}!`];
+        case 'exercisePut':
+          return [`EXERCISE MY`, `${ticker} PUTS`, `AT $${ctx.strike}!`];
+        case 'buyCall':
+          return [`${ctx.count} CALLS ON`, `${ticker}`, `@ $${ctx.strike}!`];
+        case 'buyPut':
+          return [`${ctx.count} PUTS ON`, `${ticker}`, `@ $${ctx.strike}!`];
+        case 'sellCall':
+          return [`WRITE ${ctx.count}`, `${ticker} CALLS`, `@ $${ctx.strike}!`];
+        case 'buyCallShort':
+          return [`CALLS ON`, `${ticker}`, `@ $${ctx.strike}!`];
+        case 'buyPutShort':
+          return [`PUTS ON`, `${ticker}`, `@ $${ctx.strike}!`];
+        case 'buyShares':
+          return [`BUY ${ctx.count}`, `SHARES OF`, `${ticker}!`];
+        case 'sellShares':
+          return [`SELL ${ctx.count}`, `SHARES OF`, `${ticker}!`];
+        case 'daf':
+          return ctx.count
+            ? [`GIFT ${ctx.count}`, `${ticker} SHARES`, `TO MY DAF`]
+            : [`GIFT ${ticker}`, `TO MY DAF`];
+        case 'spinoff':
+          return ctx.parent
+            ? [`${ticker} SPUN`, `OUT FROM`, ctx.parent.toUpperCase()]
+            : [`${ticker} WAS`, `SPUN OFF!`];
+        case 'mergerIn':
+          return [`RECEIVE ${ticker}`, `VIA MERGER!`];
+        case 'mergerOut':
+          return [`SURRENDER`, `${ticker}`, `IN MERGER!`];
+        case 'corporateAction':
+          return [`CORPORATE`, `ACTION ON`, `${ticker}!`];
+        case 'divReinvest':
+          return [`REINVEST`, `${ticker}`, `DIVIDEND!`];
+        case 'structured':
+          return ctx.ref
+            ? [`STRUCTURED`, `NOTE ON`, `${ctx.ref}!`]
+            : [`STRUCTURED`, `PRODUCT!`];
+        case 'foreignTicker':
+          return [`OVERSEAS`, `BUY:`, ctx.symbol];
+        case 'advisor':
+          return isBuy
+            ? [`MY ADVISOR`, `BOUGHT ${ticker}`]
+            : [`MY ADVISOR`, `SOLD ${ticker}`];
+        case 'lowValue':
+          return isBuy ? [`SMALL BUY`, `${ticker}`] : [`SMALL SALE`, `${ticker}`];
+        case 'paired':
+          return isBuy
+            ? [`TAKE ${ticker}`, `(PAIRED)`]
+            : [`DROP ${ticker}`, `(PAIRED)`];
+        case 'cashInLieu':
+          return [`FRACTIONAL`, `${ticker} &`, `CASH!`];
+      }
+    }
+
+    // Default: short ticker call, or wrapped asset name when no ticker
     if (t.ticker) {
-      const tkr = tickerOf(t);
-      return isBuy ? ["I'LL TAKE", tkr + '!'] : ['CASH OUT', tkr + '!'];
+      return isBuy ? ["I'LL TAKE", ticker + '!'] : ['CASH OUT', ticker + '!'];
     }
     const verb = isBuy ? "I'LL TAKE" : 'SELL';
-    const name = (t.asset_name || tickerOf(t)).toUpperCase();
+    const name = (t.asset_name || ticker).toUpperCase();
     const wrapped = wrapText(name, 360, BUBBLE_PX, true);
     const maxLines = 5;
     const capped = wrapped.slice(0, maxLines);
@@ -232,6 +386,56 @@
       capped[maxLines - 1] = capped[maxLines - 1].replace(/.{0,3}$/, '...');
     }
     return [verb, ...capped];
+  }
+
+  // Broker's reply — mirrors the transaction context so the exchange reads
+  // like a real dialogue rather than a single barked "SOLD!".
+  function brokerReplyLines(t, isBuy) {
+    const ctx = parseDescription(t.description);
+    if (ctx) {
+      switch (ctx.kind) {
+        case 'exerciseCall':
+        case 'exercisePut':
+          return [`STRIKE $${ctx.strike}`, 'SETTLED!'];
+        case 'buyCall':
+        case 'buyPut':
+          return [`${ctx.count} CONTRACTS`, 'WRITTEN!'];
+        case 'buyCallShort':
+        case 'buyPutShort':
+          return [`STRIKE $${ctx.strike}`, 'WRITTEN!'];
+        case 'sellCall':
+          return ['PREMIUM', 'COLLECTED!'];
+        case 'buyShares':
+          return [`${ctx.count} SHARES`, 'FILLED!'];
+        case 'sellShares':
+          return [`${ctx.count} SHARES`, isBuy ? 'DELIVERED!' : 'UNLOADED!'];
+        case 'daf':
+          return ['NOBLE', 'CAUSE!'];
+        case 'spinoff':
+          return ['SPINOFF', 'RECORDED.'];
+        case 'mergerIn':
+          return ['MERGER', 'SETTLED!'];
+        case 'mergerOut':
+          return ['SHARES', 'SURRENDERED.'];
+        case 'corporateAction':
+          return ['NOTED.', 'FILED!'];
+        case 'divReinvest':
+          return ['DRIP', 'BOOKED!'];
+        case 'structured':
+          return ['NOTE', 'ISSUED!'];
+        case 'foreignTicker':
+          return ['CROSS-', 'BORDER!'];
+        case 'advisor':
+          return ['AS USUAL,', 'GOOD SIR.'];
+        case 'lowValue':
+          return ['LOGGED.'];
+        case 'paired':
+          return ['LINKED', 'ENTRY!'];
+        case 'cashInLieu':
+          return ['BOOKED!'];
+      }
+    }
+    return [isBuy ? 'SOLD!' : 'DEAL!'];
   }
 
   function lastName(full) {
@@ -358,7 +562,7 @@
         txType: t.transaction_type,
       });
 
-      // Politician speech — short call for tickered assets, full asset_name for non-ticker ones
+      // Politician speech — context-aware from description when available
       const lines = speechLines(t, isBuy);
       const speakDur = Math.max(1.5, 1.0 + lines.length * 0.45);
       script.push({
@@ -369,10 +573,12 @@
       // Slam
       script.push({ type: 'slam' });
 
-      // Broker confirmation
+      // Broker confirmation — mirrors the transaction context
+      const reply = brokerReplyLines(t, isBuy);
+      const replyDur = Math.max(1.1, 0.7 + reply.length * 0.5);
       script.push({
-        type: 'speak', duration: 1.0, who: 'broker',
-        lines: [isBuy ? 'SOLD!' : 'DEAL!'],
+        type: 'speak', duration: replyDur, who: 'broker',
+        lines: reply,
       });
 
       // Hand-off
