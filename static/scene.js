@@ -58,6 +58,7 @@
   let ctx = null;
   let lastT = 0;
   let running = false;
+  let rafId = 0;
 
   const S = {
     lot: null,
@@ -159,11 +160,15 @@
     canvas.height = H;
     ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    if (!running) {
-      running = true;
-      requestAnimationFrame(loop);
+    running = true;
+    if (typeof document !== 'undefined' && !init._visBound) {
+      init._visBound = true;
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) { lastT = 0; requestFrame(); }
+      });
     }
     render();
+    requestFrame();
   }
 
   function setLot(t) {
@@ -188,10 +193,17 @@
     S.script = group.length ? buildScript(group) : [];
     S.stepIndex = -1;
     advance();
+    lastT = 0;
+    requestFrame();
   }
 
   function isIdle() { return S.stepIndex >= S.script.length; }
-  function setPaused(v) { S.paused = !!v; }
+  function setPaused(v) {
+    const next = !!v;
+    if (S.paused === next) return;
+    S.paused = next;
+    if (!S.paused) { lastT = 0; requestFrame(); }
+  }
 
   // Short type hints used when the asset_type isn't a standard stock
   const TYPE_SHORT = {
@@ -681,12 +693,29 @@
     }
   }
 
+  function requestFrame() {
+    if (!running || !ctx) return;
+    if (S.paused) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    if (rafId) return;
+    rafId = requestAnimationFrame(loop);
+  }
+
+  function needsFrame() {
+    if (S.paused) return false;
+    if (typeof document !== 'undefined' && document.hidden) return false;
+    if (S.step) return true;
+    if (S.flashT > 0) return true;
+    return false;
+  }
+
   function loop(now) {
+    rafId = 0;
     const dt = lastT ? Math.min(0.08, (now - lastT) / 1000) : 0;
     lastT = now;
     update(dt);
     render();
-    requestAnimationFrame(loop);
+    if (needsFrame()) requestFrame();
   }
 
   function update(dt) {
@@ -2104,35 +2133,41 @@
       textCentered(step.title || '\u2605  BASED ON A TRUE STORY  \u2605',
         W / 2, H / 2 - 4, PAL.gold, 10, true);
     } else if (step.phase === 'entry') {
-      // Lead ("Hon. Sheri Biggs reported on 2/5/2026...")
-      const leadLines = wrapText(step.lead || '', W - 70, 8, true);
-      const leadLineH = 12;
-      const leadTopY = 16;
-      for (let i = 0; i < leadLines.length && i < 3; i++) {
-        textCentered(leadLines[i], W / 2, leadTopY + i * leadLineH, PAL.gold, 8, true);
+      // Wrap and lay out once per step — these inputs don't change while
+      // the card is on screen, but render() runs every frame.
+      let layout = step._layout;
+      if (!layout) {
+        const leadLines = wrapText(step.lead || '', W - 70, 8, true).slice(0, 3);
+        const leadLineH = 12;
+        const leadTopY = 16;
+        const leadBottom = leadTopY + leadLines.length * leadLineH;
+        const attrBotY = H - 12;
+        const asset = step.assetName || step.ticker || '?';
+        const assetTrim = asset.length > 56 ? asset.slice(0, 53) + '...' : asset;
+        const attrTop = attrBotY - 26;
+        const lineH = 14;
+        const avail = Math.max(20, attrTop - leadBottom - 12);
+        const descLines = wrapText(`\u201C${step.description}\u201D`, W - 64, 9, false);
+        const maxLines = Math.max(1, Math.floor(avail / lineH));
+        const shown = descLines.slice(0, maxLines);
+        if (descLines.length > maxLines) shown[maxLines - 1] = shown[maxLines - 1].slice(0, -3) + '...';
+        const descTotalH = shown.length * lineH;
+        const descTop = leadBottom + 10 + Math.max(0, (avail - descTotalH) / 2);
+        layout = step._layout = {
+          leadLines, leadLineH, leadTopY,
+          amtLine: `UP TO ${step.amount}  \u00B7  ${step.dirLabel || 'Trade'}`,
+          assetLine: `\u2014 ${assetTrim}`,
+          attrBotY,
+          shown, descTop, lineH,
+        };
       }
-      const leadBottom = leadTopY + Math.min(leadLines.length, 3) * leadLineH;
-
-      // Attribution at the bottom (asset + direction + amount)
-      const attrBotY = H - 12;
-      const amtLine = `UP TO ${step.amount}  \u00B7  ${step.dirLabel || 'Trade'}`;
-      textCentered(amtLine, W / 2, attrBotY - 10, PAL.paper, 7, true);
-      const asset = step.assetName || step.ticker || '?';
-      const assetTrim = asset.length > 56 ? asset.slice(0, 53) + '...' : asset;
-      textCentered(`\u2014 ${assetTrim}`, W / 2, attrBotY - 22, PAL.paper, 7, false);
-      const attrTop = attrBotY - 26;
-
-      // Description body — quoted, centered between lead and attribution
-      const lineH = 14;
-      const avail = Math.max(20, attrTop - leadBottom - 12);
-      const descLines = wrapText(`\u201C${step.description}\u201D`, W - 64, 9, false);
-      const maxLines = Math.max(1, Math.floor(avail / lineH));
-      const shown = descLines.slice(0, maxLines);
-      if (descLines.length > maxLines) shown[maxLines - 1] = shown[maxLines - 1].slice(0, -3) + '...';
-      const descTotalH = shown.length * lineH;
-      const descTop = leadBottom + 10 + Math.max(0, (avail - descTotalH) / 2);
-      for (let i = 0; i < shown.length; i++) {
-        textCentered(shown[i], W / 2, descTop + i * lineH, PAL.white, 9, false);
+      for (let i = 0; i < layout.leadLines.length; i++) {
+        textCentered(layout.leadLines[i], W / 2, layout.leadTopY + i * layout.leadLineH, PAL.gold, 8, true);
+      }
+      textCentered(layout.amtLine, W / 2, layout.attrBotY - 10, PAL.paper, 7, true);
+      textCentered(layout.assetLine, W / 2, layout.attrBotY - 22, PAL.paper, 7, false);
+      for (let i = 0; i < layout.shown.length; i++) {
+        textCentered(layout.shown[i], W / 2, layout.descTop + i * layout.lineH, PAL.white, 9, false);
       }
     } else if (step.phase === 'outro') {
       textCentered('\u2605', W / 2, H / 2 - 4, PAL.gold, 12, true);

@@ -374,7 +374,37 @@ function groupTransactions(txs) {
   return { groups: order.map(k => map.get(k)), txToGroup };
 }
 
+function fingerprintLatest(data) {
+  const txs = (data && data.transactions) || [];
+  // Compact stable fingerprint — short, fast, sensitive to any field that
+  // would change rendering. Avoids stringifying the full payload.
+  const parts = [
+    txs.length,
+    data && data.year,
+    data && data.partial ? 1 : 0,
+    data && data.fallback ? 1 : 0,
+  ];
+  for (const t of txs) {
+    parts.push(
+      t.filing_doc_id || '',
+      t.politician_slug || '',
+      t.transaction_date || '',
+      t.transaction_type || '',
+      t.ticker || t.asset_name || '',
+      t.amount_max || 0,
+    );
+  }
+  return parts.join('|');
+}
+
 function applyLatest(data) {
+  const fp = fingerprintLatest(data);
+  if (state.lastFingerprint === fp) {
+    setFallbackNote(data);
+    setPartialNote(data);
+    return;
+  }
+  state.lastFingerprint = fp;
   state.transactions = data.transactions || [];
   state.activeYear = data.year;
   const { groups, txToGroup } = groupTransactions(state.transactions);
@@ -807,7 +837,17 @@ document.getElementById('filter-clear').addEventListener('click', () => clearPol
   applyRoute({ fetch: false }); // pick up initial hash silently
   try {
     await loadLatest();
-    setInterval(() => { loadLatest({ silent: true }).catch(console.error); }, REFRESH_MS);
+    // Jitter +/- 60s so independent clients don't synchronize their refreshes
+    // and slam the upstream at the same instant.
+    const scheduleRefresh = () => {
+      const jitter = (Math.random() - 0.5) * 120 * 1000;
+      setTimeout(async () => {
+        try { await loadLatest({ silent: true }); }
+        catch (e) { console.error(e); }
+        scheduleRefresh();
+      }, REFRESH_MS + jitter);
+    };
+    scheduleRefresh();
   } catch (_err) {
     // renderError already called
   }

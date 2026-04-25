@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import threading
@@ -28,8 +29,19 @@ TRANSIENT_STATUSES = {429, 502, 503, 504}
 MAX_STR_LEN = 200
 MIN_YEAR = 2008
 
-# Cache bound — LRU eviction once this many live entries exist
-MAX_CACHE_ENTRIES = 500
+# Cache bounds — LRU eviction once either limit is exceeded.
+# Entries are approximated by the byte length of their JSON serialization,
+# computed once at insertion time. The byte budget is the dominant guard;
+# the entry cap protects against a flood of tiny values.
+MAX_CACHE_ENTRIES = int(os.environ.get("MAX_CACHE_ENTRIES", "200"))
+MAX_CACHE_BYTES = int(os.environ.get("MAX_CACHE_BYTES", str(48 * 1024 * 1024)))
+
+
+def _approx_size(value: object) -> int:
+    try:
+        return len(json.dumps(value, default=str))
+    except Exception:
+        return 1024  # fallback if value isn't JSON-serializable
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 
@@ -40,7 +52,9 @@ _session.headers.update({
 })
 
 # ----- Bounded single-flight TTL cache (LRU-ish eviction) -----
-_cache: "OrderedDict[str, tuple[float, object]]" = OrderedDict()
+# Entries: key -> (expires_at, value, approx_bytes)
+_cache: "OrderedDict[str, tuple[float, object, int]]" = OrderedDict()
+_cache_bytes = 0
 _cache_lock = threading.Lock()
 _key_locks: dict[str, threading.Lock] = {}
 _key_locks_meta = threading.Lock()
@@ -58,7 +72,20 @@ def _key_lock(key: str) -> threading.Lock:
         return lock
 
 
+def _evict_locked():
+    """Evict oldest entries until cache is within both bounds. Caller holds _cache_lock."""
+    global _cache_bytes
+    while _cache and (
+        len(_cache) > MAX_CACHE_ENTRIES or _cache_bytes > MAX_CACHE_BYTES
+    ):
+        _, (_, _, sz) = _cache.popitem(last=False)
+        _cache_bytes -= sz
+    if _cache_bytes < 0:
+        _cache_bytes = 0
+
+
 def cache_get_or_set(key: str, ttl: float, fn):
+    global _cache_bytes
     now = time.time()
     with _cache_lock:
         hit = _cache.get(key)
@@ -73,11 +100,17 @@ def cache_get_or_set(key: str, ttl: float, fn):
                 _cache.move_to_end(key)
                 return hit[1]
         value = fn()
+        size = _approx_size(value)
+        # Skip caching values larger than the whole budget — they'd just thrash.
+        if size > MAX_CACHE_BYTES:
+            return value
         with _cache_lock:
-            _cache[key] = (time.time() + ttl, value)
-            _cache.move_to_end(key)
-            while len(_cache) > MAX_CACHE_ENTRIES:
-                _cache.popitem(last=False)  # evict oldest
+            prev = _cache.pop(key, None)
+            if prev is not None:
+                _cache_bytes -= prev[2]
+            _cache[key] = (time.time() + ttl, value, size)
+            _cache_bytes += size
+            _evict_locked()
         return value
 
 
@@ -214,6 +247,24 @@ def _shape_latest(
     end_date: str | None = None,
     asset_slug: str | None = None,
     chamber: str | None = None,
+):
+    # Narrow filters don't need a 500-row pool — most never have that many
+    # matches. Trim the upstream fetch so cold misses do less work.
+    if asset_slug or politician:
+        pool = min(pool, 200)
+
+    cache_key = (
+        f"shape:{year}:{limit}:{pool}:{(politician or '*').lower()}"
+        f":{start_date or '*'}:{end_date or '*'}"
+        f":{(asset_slug or '*').lower()}:{chamber or 'both'}"
+    )
+    return cache_get_or_set(cache_key, 60, lambda: _shape_latest_uncached(
+        year, limit, pool, politician, start_date, end_date, asset_slug, chamber,
+    ))
+
+
+def _shape_latest_uncached(
+    year, limit, pool, politician, start_date, end_date, asset_slug, chamber,
 ):
     result = fetch_transactions(
         year,
@@ -461,7 +512,13 @@ def _warmup():
             print(f"[warmup] year {year} error: {e}", flush=True)
 
 
-threading.Thread(target=_warmup, daemon=True, name="warmup").start()
+# Skip warmup unless explicitly enabled. Avoids duplicated upstream calls
+# under the Flask reloader (imports module twice) and across multiple
+# Gunicorn workers. Set PRIXE_WARMUP=1 in the single process you want to
+# warm the cache (e.g. an entrypoint script before the server starts, or
+# one designated worker).
+if os.environ.get("PRIXE_WARMUP") == "1":
+    threading.Thread(target=_warmup, daemon=True, name="warmup").start()
 
 
 if __name__ == "__main__":
