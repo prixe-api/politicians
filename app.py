@@ -16,7 +16,7 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 def slugify(s: str | None) -> str:
     return _SLUG_RE.sub("_", (s or "").lower()).strip("_")
 
-PRIXE_BASE = "https://api.prixe.io"
+PRIXE_BASE = os.environ.get("PRIXE_BASE", "https://api.prixe.io").rstrip("/")
 API_KEY = os.environ.get("PRIXE_API_KEY")
 if not API_KEY:
     raise RuntimeError("PRIXE_API_KEY not set in environment")
@@ -164,6 +164,52 @@ def parse_date(s):
     return 0.0
 
 
+_MONEY_RE = re.compile(r"\$?([\d,]+(?:\.\d+)?)")
+# OGE 278e "Over $50,000,000" tier — there's no upper bound, so settle on the
+# floor. Underestimates a few large filers but doesn't fabricate magnitudes.
+_OVER_50M = 50_000_000.0
+
+
+def parse_money_value(s) -> float:
+    """Estimate a dollar value from an OGE 278e value/income field.
+
+    Handles single amounts ('$143,879'), tier ranges ('$1,001 - $15,000' →
+    midpoint), 'Over $X' (returns X), and 'None (or less than $X)' (returns 0).
+    """
+    if not s or not isinstance(s, str):
+        return 0.0
+    text = s.strip()
+    low = text.lower()
+    if not low or low.startswith("none") or "less than" in low and "over" not in low:
+        # "None (or less than $201)" → 0; pure "less than" with no Over context
+        return 0.0
+    nums = [float(m.replace(",", "")) for m in _MONEY_RE.findall(text)]
+    if not nums:
+        return 0.0
+    if low.startswith("over"):
+        return max(nums[0], _OVER_50M)
+    if len(nums) >= 2:
+        return (nums[0] + nums[1]) / 2.0
+    return nums[0]
+
+
+_ASSET_SCHEDULES = ("employment_assets", "other_assets", "spouse_employment_assets")
+
+
+def _filing_total_value(filing: dict) -> float:
+    schedules = filing.get("schedules") or {}
+    total = 0.0
+    for name in _ASSET_SCHEDULES:
+        for row in schedules.get(name) or []:
+            total += parse_money_value(row.get("value"))
+    return total
+
+
+def _filing_total_liabilities(filing: dict) -> float:
+    rows = (filing.get("schedules") or {}).get("liabilities") or []
+    return sum(parse_money_value(r.get("amount")) for r in rows)
+
+
 _META_KEYS = (
     "chambers_requested",
     "chambers_returned",
@@ -183,10 +229,26 @@ def fetch_list(year: int, chamber: str | None = None) -> dict:
     key = f"list:{year}:{chamber or 'both'}"
 
     def call():
-        body: dict = {"year": year}
-        if chamber:
-            body["chamber"] = chamber
-        return prixe_post("/api/politicians/list", body)
+        # Upstream caps `limit` at 500; House+Senate combined can exceed that,
+        # and downstream callers (_shape_latest_uncached's slug/district maps)
+        # need every politician, so loop until the page comes back short.
+        rows: list[dict] = []
+        meta: dict = {}
+        offset = 0
+        page = 500
+        while True:
+            body: dict = {"year": year, "limit": page, "offset": offset}
+            if chamber:
+                body["chamber"] = chamber
+            data = prixe_post("/api/politicians/list", body)
+            if not meta:
+                meta = _meta_of(data)
+            batch = data.get("politicians", []) or []
+            rows.extend(batch)
+            if len(batch) < page:
+                break
+            offset += page
+        return {"politicians": rows, **meta}
 
     return cache_get_or_set(key, 900, call)
 
@@ -480,7 +542,9 @@ def holdings():
     key = f"holdings:{politician.lower()}:{year}:{chamber or 'both'}"
 
     def call():
-        body: dict = {"politician": politician, "year": year}
+        # Upstream now defaults to limit=50; pass the max so a single response
+        # still covers all of one politician's activity for the year.
+        body: dict = {"politician": politician, "year": year, "limit": 500}
         if chamber:
             body["chamber"] = chamber
         return prixe_post("/api/politicians/holdings", body)
@@ -491,9 +555,117 @@ def holdings():
     return jsonify(data)
 
 
+def fetch_executive(
+    politician: str | None = None,
+    ticker: str | None = None,
+    report_type: str | None = None,
+) -> dict:
+    """OGE 278e filings, paginated upstream, cached per filter combo.
+
+    When `politician` is set the upstream pre-narrows the WH disclosures
+    index before downloading PDFs — single-filer queries return in seconds
+    instead of triggering the full ~258-PDF scrape.
+    """
+    key = (
+        f"executive:{(politician or '*').lower()}"
+        f":{(ticker or '*').upper()}:{(report_type or '*').lower()}"
+    )
+
+    def call():
+        rows: list[dict] = []
+        offset = 0
+        page = 500
+        while True:
+            body: dict = {"limit": page, "offset": offset}
+            if politician:
+                body["politician"] = politician
+            if ticker:
+                body["ticker"] = ticker
+            if report_type:
+                body["report_type"] = report_type
+            data = prixe_post("/api/politicians/executive_disclosures", body)
+            batch = data.get("filings", []) or []
+            rows.extend(batch)
+            if len(batch) < page:
+                break
+            offset += page
+        return {"filings": rows}
+
+    return cache_get_or_set(key, 1800, call)
+
+
+def _filing_summary(f: dict) -> dict:
+    """Lightweight summary for the field-scene listing — no schedule rows."""
+    header = f.get("header") or {}
+    info = header.get("filer_information") or {}
+    return {
+        "filer_name": f.get("filer_name"),
+        "filer_slug": f.get("filer_slug"),
+        "position_line": info.get("position_line"),
+        "report_type": header.get("report_type"),
+        "parse_status": f.get("parse_status"),
+        "pdf_url": f.get("pdf_url"),
+        "tickers": f.get("tickers") or [],
+        "total_estimated_value": _filing_total_value(f),
+        "total_liabilities": _filing_total_liabilities(f),
+    }
+
+
+@app.route("/api/executive")
+def executive_list():
+    politician = (request.args.get("politician") or "").strip()[:MAX_STR_LEN] or None
+    ticker = (request.args.get("ticker") or "").strip()[:MAX_STR_LEN] or None
+    report_type = (request.args.get("report_type") or "").strip()[:MAX_STR_LEN] or None
+    limit = max(1, min(_int_arg("limit", 500), 500))
+    offset = max(0, _int_arg("offset", 0))
+
+    data = fetch_executive(politician, ticker, report_type)
+    filings = data.get("filings", [])
+    summaries = [_filing_summary(f) for f in filings]
+    summaries.sort(key=lambda s: s["total_estimated_value"], reverse=True)
+    page = summaries[offset:offset + limit]
+    return jsonify(
+        success=True,
+        count=len(page),
+        total=len(summaries),
+        limit=limit,
+        offset=offset,
+        filings=page,
+    )
+
+
+@app.route("/api/executive/<slug>")
+def executive_detail(slug):
+    # Prefer the cached full list (instant); fall back to a single-filer
+    # upstream call when the cache doesn't have it (e.g. before the field
+    # page has loaded).
+    cached = fetch_executive()
+    for f in cached.get("filings", []):
+        if f.get("filer_slug") == slug:
+            return jsonify({
+                **f,
+                "total_estimated_value": _filing_total_value(f),
+                "total_liabilities": _filing_total_liabilities(f),
+            })
+    fast = fetch_executive(politician=slug)
+    for f in fast.get("filings", []):
+        if f.get("filer_slug") == slug:
+            return jsonify({
+                **f,
+                "total_estimated_value": _filing_total_value(f),
+                "total_liabilities": _filing_total_liabilities(f),
+            })
+    return jsonify(error="filer not found"), 404
+
+
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
+
+
+@app.route("/executive")
+def executive_page():
+    return send_from_directory(app.static_folder, "executive.html")
 
 
 # ----- Background warm-up -----

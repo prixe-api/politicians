@@ -793,34 +793,47 @@ function applyRoute({ fetch = true } = {}) {
 
 window.addEventListener('hashchange', () => applyRoute());
 
-// When embedded in an iframe, announce hash changes to the host page so it can
-// keep its own URL bar in sync (enables shareable deep links). Safe to send
-// with targetOrigin '*' because the payload is the URL hash itself, which the
-// parent already controls via the iframe src; embedders must verify event.origin.
+// --- Embed hooks (opt-in: only fire when framed) ---
+//
+// Three messages, all with targetOrigin '*' since payloads are non-sensitive
+// (URL fragments and click classification — the parent already controls the
+// iframe src). Embedders MUST verify `event.origin` before acting.
+//
+//   politicians:hash      — legacy hash-only event (back-compat).
+//   politicians:location  — full {path, hash}; lets host pages reflect both
+//                           the in-frame route (e.g. '/executive') and the
+//                           hash, so wrapper URLs and back/forward stay sane
+//                           when the iframe navigates between sub-pages.
+//   politicians:click     — banner/branding vs in-app click classification.
+
+function postParent(msg) {
+  if (window.parent === window) return;
+  window.parent.postMessage(msg, '*');
+}
+
+function announceLocation() {
+  postParent({ type: 'politicians:location', path: location.pathname, hash: location.hash });
+}
+
 window.addEventListener('hashchange', () => {
-  if (window.parent !== window) {
-    window.parent.postMessage(
-      { type: 'politicians:hash', value: location.hash },
-      '*'
-    );
-  }
+  postParent({ type: 'politicians:hash', value: location.hash });
+  announceLocation();
 });
 
-// When embedded, classify each click as 'chrome' (banner / branding) vs 'app'
-// (any interactive element or content area) so the host page can react —
-// e.g. treating banner clicks as "go back to host home". Filter chip controls
-// inside the banner count as 'app' since they drive the embedded UI.
+// Banner = host-controlled area ("leave the embedded app"); .exec-nav and
+// the filter chip controls are in-app navigation, not chrome — without
+// these carve-outs, clicking the EXECUTIVE WING link or filter chip would
+// trigger the embedder's "go home" handler and unmount the iframe before
+// the in-frame nav completes.
 document.addEventListener('click', (e) => {
   if (window.parent === window) return;
   const inBanner = !!e.target.closest('.banner');
+  const isAppNav = !!e.target.closest('.exec-nav');
   const isFilterChip = !!e.target.closest(
     '#filter-clear, .filter-label, #filter-name'
   );
-  const area = (inBanner && !isFilterChip) ? 'chrome' : 'app';
-  window.parent.postMessage(
-    { type: 'politicians:click', area },
-    '*'
-  );
+  const area = (inBanner && !isAppNav && !isFilterChip) ? 'chrome' : 'app';
+  postParent({ type: 'politicians:click', area });
 });
 
 document.getElementById('filter-clear').addEventListener('click', () => clearPoliticianFilter());
@@ -835,6 +848,7 @@ document.getElementById('filter-clear').addEventListener('click', () => clearPol
     });
   }
   applyRoute({ fetch: false }); // pick up initial hash silently
+  announceLocation(); // tell embedder which route loaded (no-op if standalone)
   try {
     await loadLatest();
     // Jitter +/- 60s so independent clients don't synchronize their refreshes
