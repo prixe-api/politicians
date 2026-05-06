@@ -24,30 +24,47 @@
     </header>
 
     <main class="exec-stage">
-      <section class="exec-field-wrap">
-        <div class="exec-toolbar">
-          <input id="exec-search" class="exec-search" type="text" placeholder="SEARCH FILER..." aria-label="Search">
-          <div class="exec-pager">
-            <button id="exec-prev" class="btn">&#9664; PREV</button>
-            <span id="exec-page" class="exec-page">&mdash;</span>
-            <button id="exec-next" class="btn">NEXT &#9654;</button>
-          </div>
-        </div>
-        <div class="scene-wrap">
-          <canvas id="field" class="scene exec-field" aria-hidden="true"></canvas>
-          <div class="scene-plaque">FILERS&nbsp;<span id="exec-range">&mdash;</span></div>
-        </div>
-        <div class="exec-hint">&#9632; CLICK A FIGURE TO VIEW THEIR DISCLOSURE &#9632;</div>
-      </section>
-
       <aside class="exec-roster">
-        <div class="exec-roster-title">TOP HOLDINGS</div>
-        <ol id="exec-list" class="exec-list"></ol>
+        <div class="exec-roster-title">SELECT FILER</div>
+        <input id="exec-search" class="exec-search" type="text" placeholder="SEARCH..." aria-label="Search">
+        <ol id="exec-list" class="exec-list" role="listbox" aria-label="Filers"></ol>
+        <div id="exec-stream-status" class="exec-stream-status">LOADING&hellip;</div>
       </aside>
+
+      <section class="exec-field-wrap">
+        <div class="exec-current">
+          <div id="exec-current-name" class="exec-current-name">SELECT A FILER TO BEGIN</div>
+          <div id="exec-current-pos" class="exec-current-pos">&mdash;</div>
+        </div>
+
+        <nav class="exec-rooms" aria-label="Rooms">
+          <button class="exec-room-tab" data-room="positions"   disabled>1&middot;POSITIONS<span class="exec-room-count" data-count="positions">&mdash;</span></button>
+          <button class="exec-room-tab" data-room="assets"      disabled>2&middot;ASSETS<span    class="exec-room-count" data-count="assets">&mdash;</span></button>
+          <button class="exec-room-tab" data-room="income"      disabled>3&middot;INCOME<span    class="exec-room-count" data-count="income">&mdash;</span></button>
+          <button class="exec-room-tab" data-room="liabilities" disabled>4&middot;LIABILITIES<span class="exec-room-count" data-count="liabilities">&mdash;</span></button>
+        </nav>
+
+        <div class="scene-wrap">
+          <canvas id="field" class="scene exec-field" tabindex="0" aria-label="Field"></canvas>
+          <div class="scene-plaque"><span id="exec-room-label">&mdash;</span>&nbsp;&nbsp;<span id="exec-page-label">&mdash;</span></div>
+        </div>
+
+        <div class="exec-fieldbar">
+          <div class="exec-pager">
+            <button id="exec-prev" class="btn" disabled>&#9664; PREV PAGE</button>
+            <button id="exec-next" class="btn" disabled>NEXT PAGE &#9654;</button>
+          </div>
+          <a id="exec-pdf" class="btn-link exec-pdf-link" href="#" target="_blank" rel="noopener noreferrer" hidden>OPEN PDF &#9654;</a>
+        </div>
+
+        <div id="exec-info" class="exec-info" aria-live="polite">
+          <div class="exec-info-empty">&#9632; ARROWS TO MOVE &nbsp;&middot;&nbsp; BUMP AN EGG TO INSPECT &nbsp;&middot;&nbsp; 1-4 SWITCH ROOM &#9632;</div>
+        </div>
+      </section>
     </main>
 
     <footer class="footer">
-      <span class="hint">&#9632; CHARACTERS WANDER THE LAWN; THEIR HOLDINGS FLOAT ABOVE &#9632;</span>
+      <span class="hint">&#9632; PICK A FILER, WALK THE WING, BUMP THE EASTER EGGS &#9632;</span>
       <a class="gh-link" href="https://github.com/prixe-api/politicians" target="_blank" rel="noopener noreferrer" aria-label="View on GitHub">
         <svg class="gh-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path fill="currentColor" d="M12 0.5C5.373 0.5 0 5.873 0 12.5c0 5.302 3.438 9.8 8.205 11.387.6.111.82-.26.82-.577 0-.285-.01-1.04-.016-2.04-3.338.726-4.043-1.61-4.043-1.61-.546-1.386-1.333-1.756-1.333-1.756-1.09-.745.083-.73.083-.73 1.205.085 1.839 1.237 1.839 1.237 1.07 1.833 2.809 1.303 3.495.996.108-.775.419-1.304.762-1.604-2.665-.303-5.467-1.333-5.467-5.93 0-1.31.468-2.38 1.236-3.22-.124-.303-.536-1.523.117-3.176 0 0 1.008-.323 3.3 1.23.957-.266 1.984-.399 3.003-.404 1.02.005 2.046.138 3.003.404 2.29-1.553 3.297-1.23 3.297-1.23.655 1.653.243 2.873.12 3.176.77.84 1.234 1.91 1.234 3.22 0 4.61-2.807 5.624-5.48 5.92.43.37.815 1.103.815 2.222 0 1.604-.015 2.896-.015 3.29 0 .32.216.694.825.576C20.565 22.296 24 17.8 24 12.5 24 5.873 18.627 0.5 12 0.5z"/>
@@ -57,15 +74,6 @@
     </footer>
   </div>
 
-  <div id="exec-modal" class="modal">
-    <div class="modal-frame">
-      <button id="exec-modal-close" class="modal-close" aria-label="Close">&#10005;</button>
-      <div class="modal-body" id="exec-modal-body">
-        <div class="loading">LOADING...</div>
-      </div>
-    </div>
-  </div>
-
-  <script src="executive.js"></script>
+  <script src="executive.js?v=2"></script>
 </body>
 </html>
