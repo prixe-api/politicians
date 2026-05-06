@@ -555,35 +555,61 @@ def holdings():
     return jsonify(data)
 
 
+def fetch_executive_page(
+    limit: int,
+    offset: int,
+    politician: str | None = None,
+    ticker: str | None = None,
+    report_type: str | None = None,
+) -> dict:
+    """One page of OGE 278e filings, passed through to upstream, cached.
+
+    Each (filter, limit, offset) combo is cached independently so the
+    frontend can stream pages of 50 without re-scraping anything that's
+    already warm. Pre-aggregating the full list (the prior approach)
+    timed out the upstream gateway on cold starts (~5min for Trump's
+    Textract pass alone), which is why warmup was failing with 504.
+    """
+    key = (
+        f"executive_page:{(politician or '*').lower()}"
+        f":{(ticker or '*').upper()}:{(report_type or '*').lower()}"
+        f":{limit}:{offset}"
+    )
+
+    def call():
+        body: dict = {"limit": limit, "offset": offset}
+        if politician:
+            body["politician"] = politician
+        if ticker:
+            body["ticker"] = ticker
+        if report_type:
+            body["report_type"] = report_type
+        return prixe_post("/api/politicians/executive_disclosures", body)
+
+    return cache_get_or_set(key, 1800, call)
+
+
 def fetch_executive(
     politician: str | None = None,
     ticker: str | None = None,
     report_type: str | None = None,
 ) -> dict:
-    """OGE 278e filings, paginated upstream, cached per filter combo.
-
-    When `politician` is set the upstream pre-narrows the WH disclosures
-    index before downloading PDFs — single-filer queries return in seconds
-    instead of triggering the full ~258-PDF scrape.
-    """
+    """All matching OGE 278e filings — paginates upstream, caches per
+    filter combo. Used by the detail endpoint as a fallback when the
+    per-page cache doesn't yet have a slug. Avoid calling this with no
+    `politician` filter on a cold cache: it can take ~5 minutes."""
     key = (
-        f"executive:{(politician or '*').lower()}"
+        f"executive_all:{(politician or '*').lower()}"
         f":{(ticker or '*').upper()}:{(report_type or '*').lower()}"
     )
 
     def call():
         rows: list[dict] = []
         offset = 0
-        page = 500
+        page = 50  # smaller pages keep individual upstream calls inside
+        # the gateway timeout when one filer (e.g. Trump) is slow.
         while True:
-            body: dict = {"limit": page, "offset": offset}
-            if politician:
-                body["politician"] = politician
-            if ticker:
-                body["ticker"] = ticker
-            if report_type:
-                body["report_type"] = report_type
-            data = prixe_post("/api/politicians/executive_disclosures", body)
+            data = fetch_executive_page(page, offset, politician, ticker, report_type)
             batch = data.get("filings", []) or []
             rows.extend(batch)
             if len(batch) < page:
@@ -613,24 +639,29 @@ def _filing_summary(f: dict) -> dict:
 
 @app.route("/api/executive")
 def executive_list():
+    """Pages of filer summaries, passed straight through to upstream.
+
+    Default `limit` is 50 to match upstream and keep cold pages within
+    the gateway timeout. Frontend streams pages with `offset += limit`
+    until `count < limit`, appending each batch into the field scene
+    as it lands.
+    """
     politician = (request.args.get("politician") or "").strip()[:MAX_STR_LEN] or None
     ticker = (request.args.get("ticker") or "").strip()[:MAX_STR_LEN] or None
     report_type = (request.args.get("report_type") or "").strip()[:MAX_STR_LEN] or None
-    limit = max(1, min(_int_arg("limit", 500), 500))
+    limit = max(1, min(_int_arg("limit", 50), 500))
     offset = max(0, _int_arg("offset", 0))
 
-    data = fetch_executive(politician, ticker, report_type)
-    filings = data.get("filings", [])
+    data = fetch_executive_page(limit, offset, politician, ticker, report_type)
+    filings = data.get("filings", []) or []
     summaries = [_filing_summary(f) for f in filings]
-    summaries.sort(key=lambda s: s["total_estimated_value"], reverse=True)
-    page = summaries[offset:offset + limit]
     return jsonify(
         success=True,
-        count=len(page),
-        total=len(summaries),
+        count=len(summaries),
+        total=data.get("total", len(summaries)),
         limit=limit,
         offset=offset,
-        filings=page,
+        filings=summaries,
     )
 
 
@@ -677,11 +708,26 @@ def _warmup():
             fetch_list(year)
             fetch_transactions(year, target=500)
             print(f"[warmup] cached year {year}", flush=True)
-            return
+            break
         except UpstreamError as e:
             print(f"[warmup] year {year} failed: {e.status} {e.detail}", flush=True)
         except Exception as e:
             print(f"[warmup] year {year} error: {e}", flush=True)
+
+    # Executive disclosures (OGE 278e) — pre-warm only the first page so
+    # the first visitor doesn't eat the cold-scrape latency for the
+    # initial 50 filers. The frontend streams subsequent pages on its
+    # own after the page renders, so the rest of the cache fills as
+    # users browse rather than blocking warmup. Asking upstream for the
+    # full list here used to 504 (gateway timeout) when Trump's ~5-min
+    # Textract pass landed inside one page.
+    try:
+        fetch_executive_page(50, 0)
+        print("[warmup] cached executive page 1 (50 filers)", flush=True)
+    except UpstreamError as e:
+        print(f"[warmup] executive failed: {e.status} {e.detail}", flush=True)
+    except Exception as e:
+        print(f"[warmup] executive error: {e}", flush=True)
 
 
 # Skip warmup unless explicitly enabled. Avoids duplicated upstream calls

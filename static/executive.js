@@ -3,7 +3,7 @@
 (function () {
   const W = 720;
   const H = 360;
-  const PAGE_SIZE = 15;
+  const PAGE_SIZE = 20;
 
   const PAL = {
     // Sky / lawn
@@ -41,9 +41,231 @@
     suitsDk: ['#0e1632', '#1a1a1a', '#180f0a', '#2a1f15', '#10180f', '#15151f'],
     skins: ['#9a9a9a'],
     skinsDk: ['#6a6a6a'],
-    ties:  ['#c83a3a', '#1c4a8c', '#e8c547', '#5a2a8c', '#2a8c5a', '#8c5a2a'],
+    ties:  ['#c83a3a', '#1c4a8c', '#e8c547', '#5a2a8c', '#2a8c5a', '#2a8c8c', '#8c5a2a'],
     hairs: ['#141414', '#3a2a1a', '#7a5a3a', '#a88860', '#d4b878'],
   };
+
+  // Conversation pairs: [opener, reply]. When two filers bump into each
+  // other on the lawn we pick one pair and play it back as a turn —
+  // opener over speaker A for the first half of the interaction, brief
+  // silent beat, then reply over speaker B for the second half. This
+  // reads as a coherent exchange instead of a random utterance shared
+  // between two people. Organized by topic so the back-and-forth makes
+  // sense within a single conversation. Drawn from a shuffle bag
+  // (`pickConversation`) so the same scene never repeats a pair.
+  const CONVERSATIONS = [
+    // ----- Greetings & farewells -----
+    ["Cheers!", "Cheers!"],
+    ["Howdy.", "Howdy yourself."],
+    ["Morning!", "Morning."],
+    ["Afternoon.", "And to you."],
+    ["Top of the morning.", "And to you."],
+    ["Good to see you.", "Likewise."],
+    ["Long time, no see.", "Been a while."],
+    ["Where've you been?", "Around."],
+    ["Welcome back.", "Glad to be back."],
+    ["Catch you later.", "Until next time."],
+
+    // ----- Compliments / schmooze -----
+    ["Looking sharp today.", "Trying my best."],
+    ["Nice tie.", "Same to you."],
+    ["Nice cufflinks.", "Anniversary gift."],
+    ["Sharp suit.", "Bespoke, naturally."],
+    ["Solid handshake.", "Years of practice."],
+    ["Liked your op-ed.", "Appreciate it."],
+    ["Great speech.", "Too kind."],
+    ["Saw you on TV.", "Don't remind me."],
+    ["Solid testimony.", "Brutal hearing."],
+    ["Bold move.", "We'll see."],
+    ["Smart play.", "Got lucky."],
+
+    // ----- Family & life -----
+    ["How's the family?", "Surviving. You?"],
+    ["How's the kid?", "Growing fast."],
+    ["How's the dog?", "Still chewing things."],
+    ["Holding up?", "Just barely."],
+
+    // ----- POTUS / West Wing shop talk -----
+    ["How's POTUS?", "Restless."],
+    ["POTUS just signed.", "About time."],
+    ["Saw POTUS today.", "What's the mood?"],
+    ["OMB blocked it.", "Of course they did."],
+    ["OMB approved.", "Finally."],
+    ["Counsel signed off.", "Big news."],
+    ["Ethics flagged it.", "Uh oh."],
+    ["Memo's circulating.", "Saw it. Yikes."],
+    ["Cabinet pushback?", "Predictably."],
+    ["Trust the plan.", "Always."],
+    ["Saw the deck.", "Tell me they fixed slide 7."],
+    ["SitRoom in 10.", "On my way."],
+
+    // ----- Schedule / logistics -----
+    ["Got a sec?", "Walk with me."],
+    ["Briefing at noon.", "I'll be there."],
+    ["Reschedule it.", "Already did."],
+    ["Calendar's slammed.", "Same here."],
+    ["Skip the briefing?", "I wish."],
+    ["State dinner Thursday.", "Wouldn't miss it."],
+    ["Cabinet meeting moved.", "To when?"],
+    ["Mess hall menu?", "Disappointing, as always."],
+    ["Pool spray at 11.", "Good luck out there."],
+    ["Marine One inbound.", "Heard the rotor."],
+    ["Inbox is bombing.", "Drowning here too."],
+
+    // ----- Press / comms -----
+    ["Press is brutal.", "When isn't it."],
+    ["Off the record?", "Always."],
+    ["Don't quote me.", "Wouldn't dream of it."],
+    ["Background only.", "Got it."],
+    ["Comms is on it.", "Hope so."],
+    ["Sunday show prep.", "Brutal weekend."],
+    ["Bad headline today.", "Saw it."],
+    ["Talking points memo.", "Read it twice."],
+    ["Twitter's a mess.", "It always is."],
+    ["Press conference soon.", "I'll watch."],
+
+    // ----- Hill mechanics -----
+    ["Whip count's tight.", "Always is."],
+    ["Markup tomorrow.", "Buckle up."],
+    ["Floor vote Friday.", "Cutting it close."],
+    ["Senate hearing prep.", "Brutal week."],
+    ["Brief the Hill.", "I'll handle it."],
+    ["Recess hits Friday.", "Thank god."],
+
+    // ----- Disclosures / ethics (these are 278e filers, after all) -----
+    ["Form 278 due.", "Already filed."],
+    ["Saw your filing.", "Don't judge."],
+    ["Big numbers!", "Good year, I guess."],
+    ["Quite a portfolio.", "Inherited, mostly."],
+    ["Blind trust, ha.", "Allegedly."],
+    ["Recused myself.", "Wise."],
+    ["Conflict cleared.", "Took forever."],
+    ["Trust filed.", "About time."],
+
+    // ----- Markets — macro -----
+    ["Fed's hawkish.", "Predictable."],
+    ["Powell's pivoting.", "About time."],
+    ["Yields moved.", "Saw that."],
+    ["Curve inverted.", "Recession bait."],
+    ["Rate cut Q3?", "Wouldn't bet on it."],
+    ["CPI prints today.", "Fingers crossed."],
+    ["Jobs report Friday.", "Will be huge."],
+    ["Crude's ripping.", "Geopolitics."],
+    ["Banks are nervous.", "Should be."],
+    ["Liquidity's tight.", "Brutal tape."],
+    ["Markets are thin.", "Whippy day."],
+    ["Vol's spiking.", "Hedge anyway."],
+
+    // ----- Markets — equity -----
+    ["Long the SPY.", "Brave."],
+    ["Mag 7 carry.", "Until it doesn't."],
+    ["AI bubble?", "Depends on the day."],
+    ["NVDA again?", "Of course."],
+    ["Tech earnings next week.", "Buckle up."],
+    ["Small caps lagging.", "As always."],
+    ["Value rotation?", "Maybe finally."],
+    ["Quality's broken.", "Sad chart."],
+    ["Tail hedge worth it?", "Always."],
+    ["Wide moat play.", "Boring but solid."],
+    ["Crypto's down.", "Buying it."],
+    ["ETH's flying.", "Late to that party."],
+
+    // ----- Trader-bro patter -----
+    ["Buy the dip!", "Always."],
+    ["Sell the news.", "Rookie move."],
+    ["Buy the rumor.", "And sell the fact."],
+    ["Bullish.", "Bearish, frankly."],
+    ["Diamond hands.", "Until I'm not."],
+    ["To the moon!", "Or zero."],
+    ["Got any tips?", "Not from me."],
+    ["Hot stock?", "Couldn't say."],
+    ["NFA, but...", "I'll bite."],
+    ["Stonks only go up.", "Until they don't."],
+    ["Probably nothing.", "Probably everything."],
+    ["Big if true.", "Source?"],
+
+    // ----- Trumpisms (POTUS himself is a 278e filer) -----
+    ["Many people are saying.", "Tremendous."],
+    ["Believe me.", "I do."],
+    ["Bigly day.", "Tremendous."],
+    ["Best, perhaps ever.", "No doubt."],
+    ["Sad!", "Very sad."],
+    ["Very nice, very nice.", "The best."],
+    ["MAGA.", "MAGA."],
+    ["Nobody knew it was so complicated.", "Indeed."],
+
+    // ----- Internet / meme -----
+    ["Based.", "Cringe."],
+    ["Mid energy.", "Skill issue."],
+    ["Touch grass.", "I'm trying."],
+    ["It's giving panic.", "Big yikes."],
+    ["L take.", "W take, actually."],
+    ["Bestie, no.", "Bestie, yes!"],
+    ["We are so back.", "It's so over."],
+    ["Trust me bro.", "Source: vibes."],
+    ["No cap.", "On god."],
+    ["This you?", "Couldn't be me."],
+
+    // ----- Vague / filler responses -----
+    ["Hmm.", "Indeed."],
+    ["Quite.", "Right on."],
+    ["We'll see.", "Stay tuned."],
+    ["Roger that.", "Copy."],
+    ["10-4.", "Affirmative."],
+    ["Watch this space.", "Will do."],
+    ["Splendid.", "Capital."],
+    ["Off the cuff?", "Always."],
+
+    // ----- Weather / lawn small talk -----
+    ["Beautiful weather.", "For now."],
+    ["Hot one today.", "Brutal."],
+    ["Cold front coming.", "Heard that."],
+    ["Cherry blossoms!", "Almost peak."],
+    ["Garden looks nice.", "Doesn't it."],
+    ["Spring's here.", "Finally."],
+    ["Rain expected.", "Bring an umbrella."],
+    ["Forecast looks good.", "Knock on wood."],
+
+    // ----- DC dining -----
+    ["Le Diplomate?", "Friday works."],
+    ["Old Ebbitt?", "Booked."],
+    ["Joe's Steak?", "Always solid."],
+    ["Cafe Milano tonight?", "Count me in."],
+    ["1789 reservation?", "Locked in."],
+    ["Hay-Adams brunch?", "Sunday?"],
+    ["Cosmos Club?", "Member's table."],
+    ["Open bar at the thing?", "Hope so."],
+    ["Need a coffee.", "Mess is open."],
+
+    // ----- Vacation / travel -----
+    ["Vacation when?", "Never, apparently."],
+    ["Mar-a-Lago weekend?", "Tempting."],
+    ["Camp David?", "Wish."],
+    ["Bedminster?", "Maybe August."],
+    ["Beach in August?", "If we survive."],
+    ["Skiing this winter?", "Aspen, probably."],
+  ];
+
+  // ---- Compatibility shim: a few old code paths reference QUOTES.
+  // Keep it as a flat list of every line so anything still calling the
+  // old single-utterance API still works. Prefer `pickConversation()`.
+  const QUOTES = CONVERSATIONS.flat();
+
+  // Shuffle bag of conversation pairs — guarantees no repeats within
+  // a scene. Reset on `loadPage()` so each fresh page starts with a
+  // complete deck. Pop returns `[opener, reply]`.
+  let conversationBag = [];
+
+  function pickConversation() {
+    if (conversationBag.length === 0) {
+      conversationBag = CONVERSATIONS.slice();
+      for (let i = conversationBag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = conversationBag[i]; conversationBag[i] = conversationBag[j]; conversationBag[j] = tmp;
+      }
+    }
+    return conversationBag.pop();
+  }
 
   // Scene state
   let canvas = null;
@@ -52,8 +274,14 @@
   let lastT = 0;
   let allFilings = [];
   let filtered = [];
-  let pageIndex = 0;
+  let viewPage = 0;        // current page index into `filtered`
   let sprites = [];
+  // Arrival queue: filings waiting to walk on from off-screen. Drained by
+  // `update()` on a fixed cadence so sprites stream in instead of popping
+  // into existence all at once when data lands.
+  let pendingArrivals = [];
+  let arrivalCooldown = 0;             // seconds until next sprite spawns
+  const ARRIVAL_INTERVAL = 0.12;       // ~8 sprites/sec; ~24s for 200 filers
   let lastClickHit = null;
   let bgCache = null;       // offscreen background canvas
   const hoverState = { x: -1, y: -1, idx: -1 };
@@ -245,6 +473,18 @@
     const skinDk = s.colors.skinDk;
     const tie = s.colors.tie;
     const hair = s.colors.hair;
+    const scale = s.scale || 1;
+
+    // For 2× principals (Trump / Vance) we anchor the canvas transform
+    // at the bottom-center of the sprite so the feet stay planted on
+    // the lawn while the rest of the figure grows upward and outward.
+    if (scale !== 1) {
+      ctx.save();
+      const ax = x + 6;
+      ctx.translate(ax, yFeet);
+      ctx.scale(scale, scale);
+      ctx.translate(-ax, -yFeet);
+    }
 
     // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.32)';
@@ -310,11 +550,14 @@
       ctx.lineWidth = 1;
       ctx.strokeRect(x - 3, top - 2, 18, 32);
     }
+
+    if (scale !== 1) ctx.restore();
   }
 
   function drawSpriteLabels(s, isHover) {
+    const scale = s.scale || 1;
     const x = s.x | 0;
-    const top = (s.y | 0) - 26;
+    const top = (s.y | 0) - 26 * scale;
     const totalLabel = fmtMoney(s.filing.total_estimated_value);
     const nameLabel = lastNameOf(s.filing.filer_name);
     const bigPx = 7;
@@ -362,6 +605,10 @@
     const y = b.minY + rng() * (b.maxY - b.minY);
     const angle = rng() * Math.PI * 2;
     const speed = 8 + rng() * 8; // px/sec
+    // POTUS / VPOTUS render at 2× — they're the principals and should
+    // read as such from across the lawn.
+    const slug = filing.filer_slug || '';
+    const scale = (slug === 'president_donald_j_trump' || slug === 'vice_president_jd_vance') ? 2 : 1;
     return {
       filing,
       x, y,
@@ -370,21 +617,78 @@
       walkPhase: 0,
       walkT: rng() * 0.25,
       changeIn: 1.5 + rng() * 3,
-      state: 'wander',     // 'wander' | 'interact'
+      state: 'wander',     // 'wander' | 'interact' | 'enter'
       stateT: 0,
       partnerIdx: -1,
+      targetX: x,
+      targetY: y,
       colors,
+      scale,
+      bubbleText: '',
       seed: h,
     };
+  }
+
+  // Wraps `makeSprite` and overrides spawn position to just off the left
+  // edge of the canvas. The sprite walks toward its deterministic
+  // (filing-slug-hashed) target inside the field; once it's close enough,
+  // `update()` flips it to the normal 'wander' state.
+  function makeEnteringSprite(filing) {
+    const s = makeSprite(filing);
+    const b = fieldBounds();
+    s.targetX = s.x;
+    s.targetY = s.y;
+    s.x = b.minX - 24;             // off-screen to the left
+    s.state = 'enter';
+    s.stateT = 0;
+    const dx = s.targetX - s.x;
+    const dy = s.targetY - s.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const speed = 26 + Math.random() * 10;   // px/sec — brisker than wandering
+    s.vx = (dx / d) * speed;
+    s.vy = (dy / d) * speed;
+    return s;
   }
 
   // -------- Update loop --------
   function update(dt) {
     const b = fieldBounds();
+
+    // Drain the arrival queue at a fixed cadence so filers stream in.
+    if (pendingArrivals.length > 0) {
+      arrivalCooldown -= dt;
+      let spawned = false;
+      while (arrivalCooldown <= 0 && pendingArrivals.length > 0) {
+        sprites.push(makeEnteringSprite(pendingArrivals.shift()));
+        arrivalCooldown += ARRIVAL_INTERVAL;
+        spawned = true;
+      }
+      if (spawned) updatePagerText();
+    }
+
     for (let i = 0; i < sprites.length; i++) {
       const s = sprites[i];
       s.walkT += dt;
       if (s.walkT >= 0.22) { s.walkT = 0; s.walkPhase++; }
+
+      // 'enter' — walking on from off-screen toward the deterministic target.
+      // Bounds reflection is intentionally skipped here so x can climb up
+      // from negative without bouncing back off the left wall.
+      if (s.state === 'enter') {
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        const ddx = s.targetX - s.x;
+        const ddy = s.targetY - s.y;
+        if (ddx * ddx + ddy * ddy < 36) {
+          s.state = 'wander';
+          const a = Math.random() * Math.PI * 2;
+          const sp = 8 + Math.random() * 10;
+          s.vx = Math.cos(a) * sp;
+          s.vy = Math.sin(a) * sp;
+          s.changeIn = 1.5 + Math.random() * 3;
+        }
+        continue;
+      }
 
       if (s.state === 'interact') {
         s.stateT -= dt;
@@ -429,8 +733,10 @@
       }
     }
 
-    // Pair detection — when two sprites get within 14px, occasionally
-    // start an interaction (face each other for ~2s).
+    // Pair detection — when two sprites get close, occasionally start
+    // an interaction (face each other and exchange a quote). Detection
+    // radius scales with the larger of the two sprites so the 2×
+    // principals don't get walked-through silently.
     for (let i = 0; i < sprites.length; i++) {
       const a = sprites[i];
       if (a.state !== 'wander') continue;
@@ -439,9 +745,20 @@
         if (c.state !== 'wander') continue;
         const dx = a.x - c.x;
         const dy = a.y - c.y;
-        if (dx * dx + dy * dy < 14 * 14 && Math.random() < 0.05) {
-          a.state = 'interact'; a.stateT = 1.6 + Math.random() * 1.4; a.partnerIdx = j;
-          c.state = 'interact'; c.stateT = a.stateT;                  c.partnerIdx = i;
+        const r = 14 * Math.max(a.scale || 1, c.scale || 1);
+        if (dx * dx + dy * dy < r * r && Math.random() < 0.05) {
+          // Each interaction is one [opener, reply] pair. The opener
+          // shows above sprite A for the first half, then a short
+          // silent beat, then the reply shows above sprite B. Total
+          // duration scales with the longer of the two utterances so
+          // a wordy line still has time to be read.
+          const pair = pickConversation();
+          const opener = pair[0];
+          const reply = pair[1];
+          const lengthBoost = (opener.length + reply.length) * 0.025;
+          const dur = 3.4 + lengthBoost + Math.random() * 0.6;
+          a.state = 'interact'; a.stateT = dur; a.stateT0 = dur; a.partnerIdx = j; a.bubbleText = opener;
+          c.state = 'interact'; c.stateT = dur; c.stateT0 = dur; c.partnerIdx = i; c.bubbleText = reply;
           a.vx = a.vy = 0;
           c.vx = c.vy = 0;
           break;
@@ -470,28 +787,73 @@
     for (const i of order) drawSprite(sprites[i], i === hoverIdx);
     for (const i of order) drawSpriteLabels(sprites[i], i === hoverIdx);
 
-    // If interacting pairs, draw a small chat bubble above one
+    // Interacting pairs play back a turn-based exchange. The opener
+    // (sprite at lower index, set at interaction-start) shows for the
+    // first ~45% of the duration; a short silent beat; then the reply
+    // shows for the last ~45%. The bubble anchors above whichever
+    // sprite is currently speaking so it's clear who said what.
     for (let i = 0; i < sprites.length; i++) {
       const s = sprites[i];
-      if (s.state === 'interact' && s.partnerIdx > i) {
-        const p = sprites[s.partnerIdx];
-        const cx = ((s.x + p.x) / 2) | 0;
-        const cy = (Math.min(s.y, p.y) | 0) - 38;
-        drawChatBubble(cx, cy);
-      }
+      if (s.state !== 'interact' || s.partnerIdx <= i) continue;
+      const p = sprites[s.partnerIdx];
+      const dur = s.stateT0 || 1;
+      const progress = 1 - s.stateT / dur;     // 0 → 1 over interaction
+      let speaker = null;
+      if (progress < 0.45)       speaker = s;
+      else if (progress > 0.55)  speaker = p;
+      // 0.45..0.55 is intentionally silent — natural beat between turns
+      if (!speaker) continue;
+      const sc = speaker.scale || 1;
+      const topSpeaker = (speaker.y | 0) - 26 * sc;
+      const cx = (speaker.x | 0) + 6;
+      const cy = topSpeaker - 14;
+      drawChatBubble(cx, cy, speaker.bubbleText || '...');
     }
   }
 
-  function drawChatBubble(cx, cy) {
-    const w = 18, h = 10;
-    rect('rgba(0,0,0,0.4)', cx - w / 2 + 1, cy + 1, w, h);
-    rect(PAL.paper, cx - w / 2, cy, w, h);
-    rect(PAL.ink, cx - w / 2, cy, w, 1);
-    rect(PAL.ink, cx - w / 2, cy + h - 1, w, 1);
-    rect(PAL.ink, cx - w / 2, cy, 1, h);
-    rect(PAL.ink, cx + w / 2 - 1, cy, 1, h);
-    rect(PAL.ink, cx - 1, cy + h, 2, 1);
-    text('...', cx - 6, cy + 2, PAL.ink, 5, true);
+  function wrapBubbleText(s, maxW, px) {
+    const words = String(s || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+      const cand = cur ? cur + ' ' + w : w;
+      if (measure(cand, px, true) > maxW && cur) {
+        lines.push(cur);
+        cur = w;
+      } else {
+        cur = cand;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines.length ? lines : [''];
+  }
+
+  function drawChatBubble(cx, cy, txt) {
+    const PX = 7;
+    const padX = 5;
+    const padY = 6;       // a touch taller — gives the text more room
+    const lineH = PX + 5; // bumped from PX+3 so multi-line bubbles breathe
+    const lines = wrapBubbleText(txt, 130, PX);
+    const lineWs = lines.map(l => measure(l, PX, true));
+    const w = Math.max(16, Math.ceil(Math.max.apply(null, lineWs)) + padX * 2);
+    const h = lines.length * lineH - 2 + padY * 2;
+    // Clamp the bubble inside the canvas so a quote doesn't get cut off
+    const x0 = Math.max(2, Math.min(W - w - 2, cx - w / 2)) | 0;
+    const y0 = Math.max(2, cy - h) | 0;
+
+    rect('rgba(0,0,0,0.4)', x0 + 1, y0 + 1, w, h);
+    rect(PAL.paper, x0, y0, w, h);
+    rect(PAL.ink, x0, y0, w, 1);
+    rect(PAL.ink, x0, y0 + h - 1, w, 1);
+    rect(PAL.ink, x0, y0, 1, h);
+    rect(PAL.ink, x0 + w - 1, y0, 1, h);
+    // Tail pointing toward the speakers
+    const tailX = Math.max(x0 + 2, Math.min(x0 + w - 4, (cx | 0) - 1));
+    rect(PAL.ink, tailX, y0 + h, 2, 1);
+
+    for (let i = 0; i < lines.length; i++) {
+      textCentered(lines[i], x0 + w / 2, y0 + padY + i * lineH, PAL.ink, PX, true);
+    }
   }
 
   function pickSpriteAt(px, py) {
@@ -499,10 +861,16 @@
     let pick = -1;
     for (let i = 0; i < sprites.length; i++) {
       const s = sprites[i];
+      const sc = s.scale || 1;
       const x = s.x | 0;
       const yFeet = s.y | 0;
-      const top = yFeet - 26;
-      if (px >= x - 3 && px <= x + 14 && py >= top - 24 && py <= yFeet + 2) {
+      const top = yFeet - 26 * sc;
+      // Sprite anchor is at x+6 (bottom-center). Width grows outward
+      // from there with scale. Vertical hit zone extends 24px above
+      // the head for the floating label.
+      const halfW = 6 * sc + 3;
+      if (px >= x + 6 - halfW && px <= x + 6 + halfW
+          && py >= top - 24 && py <= yFeet + 2) {
         if (pick < 0 || sprites[pick].y < s.y) pick = i;
       }
     }
@@ -523,19 +891,49 @@
   function running() { return !!canvas && !document.hidden; }
 
   // -------- Page wiring --------
-  function loadPage() {
-    const start = pageIndex * PAGE_SIZE;
+  // Window `filtered` to PAGE_SIZE entries and queue them onto the
+  // lawn from off-screen. Streaming background fetches keep growing
+  // `filtered`, but the visible scene is bounded to one page so the
+  // grass doesn't turn into a stampede. Prev/next + arrow keys cycle
+  // through pages.
+  function pageCount() {
+    return Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  }
+
+  function loadPage(idx) {
+    const pages = pageCount();
+    viewPage = ((idx % pages) + pages) % pages;
+    const start = viewPage * PAGE_SIZE;
     const slice = filtered.slice(start, start + PAGE_SIZE);
-    sprites = slice.map(makeSprite);
-    document.getElementById('exec-page').textContent =
-      filtered.length === 0
-        ? 'NO MATCHES'
-        : `PAGE ${pageIndex + 1}/${Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))}`;
-    document.getElementById('exec-range').textContent =
-      filtered.length === 0
-        ? '0'
-        : `${start + 1}-${Math.min(start + PAGE_SIZE, filtered.length)} OF ${filtered.length}`;
+    sprites = [];
+    pendingArrivals = slice;
+    arrivalCooldown = 0;
+    conversationBag = []; // fresh shuffle for the new scene; no repeated exchanges
+    updatePagerText();
     renderRoster();
+  }
+
+  // Re-load the current page in place. Used when the filter changes
+  // (resets to page 0) or when a brand-new streamed batch happens to
+  // change which filers fall on the visible page.
+  function reloadCurrentPage() {
+    loadPage(viewPage);
+  }
+
+  function updatePagerText() {
+    const total = filtered.length;
+    const pages = pageCount();
+    const start = viewPage * PAGE_SIZE;
+    const end = Math.min(start + PAGE_SIZE, total);
+    const pageEl = document.getElementById('exec-page');
+    const rangeEl = document.getElementById('exec-range');
+    if (total === 0) {
+      pageEl.textContent = 'NO MATCHES';
+      rangeEl.textContent = '0';
+    } else {
+      pageEl.textContent = `PAGE ${viewPage + 1}/${pages}`;
+      rangeEl.textContent = `${start + 1}-${end} OF ${total}`;
+    }
   }
 
   function renderRoster() {
@@ -564,22 +962,77 @@
   }
 
   // -------- Filtering --------
+  let lastQuery = '';
+
+  function filterPredicate(f, q) {
+    const name = (f.filer_name || '').toLowerCase();
+    // Drop PTRs and the meta doc — they aren't 278e annual disclosures.
+    // The PTR titles in the wild have inconsistent whitespace so allow
+    // any spacing between the words.
+    if (/periodic\s+transaction\s+report/.test(name)) return false;
+    if (name.includes('annual report to congress on white house staff')) return false;
+    if (!q) return true;
+    const pos = (f.position_line || '').toLowerCase();
+    return name.includes(q) || pos.includes(q) ||
+      (f.tickers || []).some(t => (t || '').toLowerCase().includes(q));
+  }
+
+  function sortByTotalDesc(a, b) {
+    return (b.total_estimated_value || 0) - (a.total_estimated_value || 0);
+  }
+
   function applyFilter(query) {
-    const q = (query || '').trim().toLowerCase();
-    filtered = allFilings.filter(f => {
-      const name = (f.filer_name || '').toLowerCase();
-      // Drop PTRs and the meta doc — they aren't 278e annual disclosures.
-      // The PTR titles in the wild have inconsistent whitespace so allow
-      // any spacing between the words.
-      if (/periodic\s+transaction\s+report/.test(name)) return false;
-      if (name.includes('annual report to congress on white house staff')) return false;
-      if (!q) return true;
-      const pos = (f.position_line || '').toLowerCase();
-      return name.includes(q) || pos.includes(q) ||
-        (f.tickers || []).some(t => (t || '').toLowerCase().includes(q));
-    });
-    pageIndex = 0;
-    loadPage();
+    lastQuery = (query || '').trim().toLowerCase();
+    filtered = allFilings.filter(f => filterPredicate(f, lastQuery));
+    filtered.sort(sortByTotalDesc);
+    loadPage(0);
+  }
+
+  // Called after each streamed page lands. Dedupes by slug and appends
+  // new matches to `filtered` (kept sorted by total desc). Refreshes
+  // the pager + roster so the user sees the new page count and
+  // top-holdings list update, but does NOT pull the user off their
+  // current page — the lawn stays stable while data streams in.
+  function appendFilings(newOnes) {
+    const seen = new Set(allFilings.map(f => f.filer_slug));
+    const fresh = (newOnes || []).filter(f => f.filer_slug && !seen.has(f.filer_slug));
+    if (!fresh.length) return;
+    allFilings = allFilings.concat(fresh);
+    const matching = fresh.filter(f => filterPredicate(f, lastQuery));
+    if (matching.length) {
+      filtered = filtered.concat(matching);
+      filtered.sort(sortByTotalDesc);
+    }
+    updatePagerText();
+    renderRoster();
+    reconcileVisiblePage();
+  }
+
+  // Bring the visible page (sprites on lawn + pending arrivals) in
+  // line with the current top-N of `filtered`. Streaming is sorted by
+  // total desc but data arrives in upstream order (alphabetical), so a
+  // late-arriving high-value filer (e.g. Trump, who's in offset ~150)
+  // would otherwise never reach page 1 unless the user manually
+  // navigated away and back. This preserves continuity for filers who
+  // are still on the page (they keep their positions and walk-cycle)
+  // while displacing the ones that just lost their spot.
+  function reconcileVisiblePage() {
+    const start = viewPage * PAGE_SIZE;
+    const newSlice = filtered.slice(start, start + PAGE_SIZE);
+    if (newSlice.length === 0) return;
+    const newSlugs = new Set(newSlice.map(f => f.filer_slug));
+
+    sprites = sprites.filter(s => newSlugs.has(s.filing.filer_slug));
+    pendingArrivals = pendingArrivals.filter(f => newSlugs.has(f.filer_slug));
+
+    const known = new Set(
+      sprites.map(s => s.filing.filer_slug).concat(
+        pendingArrivals.map(f => f.filer_slug)
+      )
+    );
+    for (const f of newSlice) {
+      if (!known.has(f.filer_slug)) pendingArrivals.push(f);
+    }
   }
 
   // -------- Modal --------
@@ -781,16 +1234,8 @@
       if (idx >= 0) openModal(sprites[idx].filing.filer_slug);
     });
 
-    document.getElementById('exec-prev').addEventListener('click', () => {
-      const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-      pageIndex = (pageIndex - 1 + pages) % pages;
-      loadPage();
-    });
-    document.getElementById('exec-next').addEventListener('click', () => {
-      const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-      pageIndex = (pageIndex + 1) % pages;
-      loadPage();
-    });
+    document.getElementById('exec-prev').addEventListener('click', () => loadPage(viewPage - 1));
+    document.getElementById('exec-next').addEventListener('click', () => loadPage(viewPage + 1));
     let searchT = 0;
     document.getElementById('exec-search').addEventListener('input', (e) => {
       const q = e.target.value;
@@ -803,23 +1248,57 @@
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeModal();
-      if (e.key === 'ArrowLeft') document.getElementById('exec-prev').click();
-      if (e.key === 'ArrowRight') document.getElementById('exec-next').click();
+      if (e.key === 'ArrowLeft') loadPage(viewPage - 1);
+      if (e.key === 'ArrowRight') loadPage(viewPage + 1);
     });
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && !raf) { lastT = 0; raf = requestAnimationFrame(frame); }
     });
 
-    fetch('/api/executive')
-      .then(r => r.json())
-      .then(d => {
-        allFilings = d.filings || [];
-        applyFilter('');
-        if (!raf) raf = requestAnimationFrame(frame);
-      })
-      .catch(() => {
-        text('FAILED TO LOAD', W / 2, H / 2, PAL.red, 10, true);
-      });
+    if (!raf) raf = requestAnimationFrame(frame);
+    streamFilings();
+  }
+
+  // Fetch filings one page-of-50 at a time, appending each batch to the
+  // arrival queue. Sequential — firing pages in parallel risks blowing
+  // the upstream's PDF-scrape budget. Each page is retried with
+  // exponential backoff (4s → 64s, ~2min total) because cold scrapes
+  // routinely 504 through the API Gateway: the upstream keeps caching
+  // PDFs in the background during failed requests, so a later attempt
+  // for the same offset usually succeeds once enough rows are warm.
+  // Stops when `total` is reached or the upstream returns a short page.
+  async function streamFilings() {
+    const PAGE = 50;
+    const BACKOFFS = [4000, 8000, 16000, 32000, 64000]; // ~2min/page budget
+    let offset = 0;
+    let total = Infinity;
+    while (offset < total) {
+      let data = null;
+      for (let attempt = 0; attempt <= BACKOFFS.length && !data; attempt++) {
+        try {
+          const r = await fetch(`/api/executive?limit=${PAGE}&offset=${offset}`);
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          data = await r.json();
+        } catch (e) {
+          if (attempt >= BACKOFFS.length) break;
+          await new Promise(res => setTimeout(res, BACKOFFS[attempt]));
+        }
+      }
+      if (!data) {
+        // Wedged page after exhausting retries. Surface the partial
+        // state — sprites that already arrived keep animating, and a
+        // refresh after the upstream warms picks up the rest.
+        if (allFilings.length === 0) {
+          text('FAILED TO LOAD', W / 2, H / 2, PAL.red, 10, true);
+        }
+        return;
+      }
+      const batch = data.filings || [];
+      if (typeof data.total === 'number') total = data.total;
+      appendFilings(batch);
+      if (batch.length < PAGE) break;
+      offset += PAGE;
+    }
   }
 
   if (document.readyState === 'loading') {
